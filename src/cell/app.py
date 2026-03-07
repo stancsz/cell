@@ -84,7 +84,8 @@ def build_system_prompt() -> str:
         "2. If a required file is missing, create it immediately — do not skip it.\n"
         "3. Your LAST action must always be a tool call (write_file, run_command, or read_file), never plain text.\n"
         "   Outputting only text means you have stopped working — only do this after physically verifying all deliverables exist.\n"
-        "4. If pytest or any command times out, retry with a shorter subset or debug the failure — never give up.\n\n"
+        "4. If pytest or any command times out, retry with a shorter subset or debug the failure — never give up.\n"
+        "5. WHEN YOU ARE 100% FINISHED, use write_file to create a file named `.eval_done` in the current directory containing the word 'DONE'. This is how you signal completion.\n\n"
         "## Coding Standards\n"
         "- Write complete, working, production-quality code — no stubs, no placeholders, no TODOs.\n"
         "- Prefer simple, minimal implementations. Avoid unnecessary abstractions.\n"
@@ -304,8 +305,8 @@ class CellApp(App):
                         "role": "user",
                         "content": (
                             "You replied with plain text and no tool calls. "
-                            "If you are finished with the ENTIRE task, create the 'DONE.txt' "
-                            "file (or equivalent final artifact) using write_file to signal completion. "
+                            "If you are finished with the ENTIRE task, create the '.eval_done' "
+                            "file using write_file to signal completion. "
                             "Otherwise, you MUST use a tool to continue your work."
                         )
                     })

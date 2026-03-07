@@ -155,9 +155,8 @@ async def test_realistic_scenario(scenario, tmp_path):
         # Real MCP tools required — no mock.
         app = CellApp(initial_prompt=scenario["instructions"])
 
-        # Sentinel: last file in files_must_exist signals task completion.
-        expected_files = scenario.get("success_criteria", {}).get("files_must_exist", [])
-        sentinel = tmp_path / expected_files[-1] if expected_files else None
+        # Sentinel: the agent is instructed to create .eval_done when finished.
+        sentinel = tmp_path / ".eval_done"
 
         poll_timeout = _get_timeout()
         async with app.run_test() as pilot:
