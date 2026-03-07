@@ -31,12 +31,19 @@ from unittest.mock import patch, AsyncMock
 # ---------------------------------------------------------------------------
 
 SCENARIO_FILE = Path(__file__).parent / "realistic_eval_scenarios.yaml"
+EVAL_LOG = Path(__file__).parent / "eval_results.jsonl"
 
 
 def load_scenarios():
     """Parse realistic_eval_scenarios.yaml and return list of scenario dicts."""
     data = yaml.safe_load(SCENARIO_FILE.read_text(encoding="utf-8"))
     return data["scenarios"]
+
+
+def _get_timeout():
+    """Read the runner.timeout_seconds from the YAML (default 300)."""
+    data = yaml.safe_load(SCENARIO_FILE.read_text(encoding="utf-8"))
+    return data.get("runner", {}).get("timeout_seconds", 300)
 
 
 def _scenario_id(scenario):
@@ -108,27 +115,36 @@ def _check_criteria(scenario: dict, base_dir: Path) -> list[str]:
     return failures
 
 
+def _log_result(scenario_name: str, passed: bool, failures: list[str]) -> None:
+    """Append a JSON line to eval_results.jsonl for live progress tracking."""
+    record = {
+        "scenario": scenario_name,
+        "passed": passed,
+        "failures": failures,
+    }
+    with open(EVAL_LOG, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
+
 # ---------------------------------------------------------------------------
 # Core test
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("scenario", load_scenarios(), ids=_scenario_id)
 @pytest.mark.asyncio
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(380)
 async def test_realistic_scenario(scenario, tmp_path):
     """
     Run a single realistic eval scenario end-to-end using the live Cell agent.
 
     The agent is started with the scenario's `instructions` as its initial
-    prompt. We poll for completion by watching for the last expected artifact
-    listed in success_criteria.files_must_exist, then verify all criteria.
+    prompt. We poll every 2 s for the sentinel file, then verify all criteria.
+    Results are streamed to tests/eval_results.jsonl as each scenario finishes.
     """
-    from cell.app import CellApp, MEMORY_FILE
+    from cell.app import CellApp
     import cell.app as cell_app
 
-    # Isolate memory to avoid polluting real ~/.cell/context.md
-    # (unless the scenario tests memory recall — then we still isolate
-    #  but within the same tmp_path so recall *can* work intra-session)
+    # Isolate memory so tests don't corrupt real ~/.cell/context.md
     original_memory = cell_app.MEMORY_FILE
     cell_app.MEMORY_FILE = tmp_path / "test_context.md"
 
@@ -136,35 +152,30 @@ async def test_realistic_scenario(scenario, tmp_path):
     os.chdir(str(tmp_path))
 
     try:
-        with patch("cell.app.load_mcp_servers") as mock_loader:
-            # We need REAL MCP tools for realistic scenarios — the mock below
-            # only applies if you want unit-style testing without a subprocess.
-            # For full integration, remove this patch entirely.
-            # Here we keep it as an explicit no-op mock that falls through to
-            # the real loader, meaning removal is obvious.
-            pass  # Do NOT mock — we need real core_skills MCP tools
-
-        # Re-import without mock so real MCP tools are available
+        # Real MCP tools required — no mock.
         app = CellApp(initial_prompt=scenario["instructions"])
 
-        # The final sentinel: last file in files_must_exist list
+        # Sentinel: last file in files_must_exist signals task completion.
         expected_files = scenario.get("success_criteria", {}).get("files_must_exist", [])
         sentinel = tmp_path / expected_files[-1] if expected_files else None
 
+        poll_timeout = _get_timeout()
         async with app.run_test() as pilot:
-            # Poll up to timeout_seconds (default 300 from yaml, but
-            # pytest-timeout handles the outer kill)
-            timeout = scenario.get("success_criteria", {}).get("timeout_seconds", 300)
-            for _ in range(int(timeout / 2)):
+            for _ in range(int(poll_timeout / 2)):
                 await asyncio.sleep(2)
                 if sentinel and sentinel.exists():
                     break
 
         failures = _check_criteria(scenario, tmp_path)
+        _log_result(scenario["name"], passed=not failures, failures=failures)
         assert not failures, (
             f"\nScenario '{scenario['name']}' failed {len(failures)} criteria:\n"
             + "\n".join(f"  ✗ {f}" for f in failures)
         )
+
+    except Exception as exc:
+        _log_result(scenario["name"], passed=False, failures=[str(exc)])
+        raise
 
     finally:
         os.chdir(original_cwd)
@@ -172,7 +183,7 @@ async def test_realistic_scenario(scenario, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Smoke test — loads the scenario file itself (no LLM call)
+# Smoke tests — no LLM calls
 # ---------------------------------------------------------------------------
 
 def test_scenario_file_is_valid():
