@@ -1,0 +1,1628 @@
+
+# =============================================================================
+# Cell Agent — Realistic SOTA Evaluation Scenarios
+#
+# Design rationale:
+#   These scenarios are written from the perspective of a real developer who
+#   would actually type this into Claude Code, Codex CLI, or OpenClaw.
+#   Each scenario:
+#     - Has a single, open-ended human-phrased goal (not an enumerated task list)
+#     - Requires multi-step reasoning and tool chaining to complete
+#     - Includes error-recovery paths (bad code that must be fixed)
+#     - Tests memory persistence (recall from earlier prompts)
+#     - Verifies real artifacts, not synthetic SUCCESS.txt sentinels
+#     - Reflects work a developer would genuinely outsource to an AI agent
+#
+# Graders should check the `success_criteria` section for verifiable artifacts.
+# =============================================================================
+
+scenarios:
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 1 — "Debug my broken test suite"
+  #   Mirrors: "claude code, my tests are failing, fix them"
+  # ---------------------------------------------------------------------------
+  - name: "debug_broken_pytest_suite"
+    category: "debugging"
+    difficulty: "medium"
+    comparable_to: ["claude_code", "codex_cli", "openclaw"]
+
+    instructions: |
+      I have a Python project in `eval_debug_proj/`. Create it for me with the
+      following broken state, then automatically find and fix all the bugs so
+      that `pytest eval_debug_proj/` passes with zero failures.
+
+      The project should have:
+        - `eval_debug_proj/calculator.py` with an `add(a, b)` function that has
+          an off-by-one bug (returns a + b + 1 instead of a + b) and a
+          `divide(a, b)` function with no zero-division guard.
+        - `eval_debug_proj/test_calculator.py` that tests add(2, 3) == 5 and
+          divide(10, 0) raises ZeroDivisionError.
+        - `eval_debug_proj/__init__.py` (empty)
+
+      After creating the broken project, run pytest, observe the failures,
+      fix the source code, and run pytest again to confirm it passes.
+      Write a file `eval_debug_proj/FIXED.md` summarising what bugs you found
+      and what changes you made.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_debug_proj/calculator.py"
+        - "eval_debug_proj/test_calculator.py"
+        - "eval_debug_proj/FIXED.md"
+      commands_must_pass:
+        - "python -m pytest eval_debug_proj/ -v"
+      file_must_contain:
+        - path: "eval_debug_proj/FIXED.md"
+          contains: "bug"
+        - path: "eval_debug_proj/calculator.py"
+          not_contains: "+ 1"   # the off-by-one must be removed
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 2 — "Scaffold a REST API from scratch"
+  #   Mirrors: a real "claude code, create a flask API for me" session
+  # ---------------------------------------------------------------------------
+  - name: "scaffold_flask_rest_api"
+    category: "code_generation"
+    difficulty: "medium"
+    comparable_to: ["claude_code", "codex_cli", "openclaw"]
+
+    instructions: |
+      Create a small but fully working Flask REST API in `eval_api/`.
+
+      Requirements:
+        - `eval_api/app.py` — Flask app with these routes:
+            GET  /items           → returns JSON list of items (in-memory list)
+            POST /items           → accepts JSON {"name": str}, appends to list,
+                                    returns the new item with an auto-incremented id
+            GET  /items/<id>      → returns a single item or 404
+            DELETE /items/<id>    → removes item or 404
+        - `eval_api/test_app.py` — pytest tests using Flask test client that
+          cover all four routes including the 404 cases.
+        - `eval_api/requirements.txt` — lists flask and pytest.
+        - `eval_api/README.md` — 5-line usage doc.
+
+      After writing all files, run `python -m pytest eval_api/test_app.py -v`
+      to confirm the tests pass. If any test fails, fix the source and rerun.
+      Do NOT stop until pytest exits 0.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_api/app.py"
+        - "eval_api/test_app.py"
+        - "eval_api/requirements.txt"
+        - "eval_api/README.md"
+      commands_must_pass:
+        - "python -m pytest eval_api/test_app.py -v"
+      file_must_contain:
+        - path: "eval_api/app.py"
+          contains: "@app.route"
+        - path: "eval_api/test_app.py"
+          contains: "def test_"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 3 — "Refactor a messy file into modules"
+  #   Mirrors: "this monolith is 500 lines, split it up"
+  # ---------------------------------------------------------------------------
+  - name: "refactor_monolith_to_modules"
+    category: "refactoring"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      I have a monolithic Python script. Create it, then refactor it.
+
+      Step 1 — create `eval_refactor/monolith.py` with these sections all in
+      one file:
+        - A `Config` dataclass with fields: host, port, debug (with defaults).
+        - A `DatabaseClient` class with `connect()` and `query(sql)` methods
+          (stubs that print and return dummy data).
+        - A `ReportGenerator` class with `generate(data)` that formats data
+          as a markdown table.
+        - A `main()` function that wires them: creates Config, connects DB,
+          queries "SELECT * FROM orders", generates a report, prints it.
+
+      Step 2 — refactor into separate modules under `eval_refactor/`:
+        - `config.py`     — Config dataclass
+        - `database.py`   — DatabaseClient
+        - `reports.py`    — ReportGenerator
+        - `main.py`       — main() that imports from the three modules
+
+      Step 3 — delete `monolith.py`.
+      Step 4 — verify `python eval_refactor/main.py` runs with no errors.
+      Step 5 — write `eval_refactor/REFACTOR_LOG.md` listing every module
+      created and what was moved into it.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_refactor/config.py"
+        - "eval_refactor/database.py"
+        - "eval_refactor/reports.py"
+        - "eval_refactor/main.py"
+        - "eval_refactor/REFACTOR_LOG.md"
+      files_must_not_exist:
+        - "eval_refactor/monolith.py"
+      commands_must_pass:
+        - "python eval_refactor/main.py"
+      file_must_contain:
+        - path: "eval_refactor/REFACTOR_LOG.md"
+          contains: "config.py"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 4 — "Remember project context across steps"
+  #   Tests: agent memory (remember + search_memory)
+  #   Mirrors: multi-session Claude Code workflow
+  # ---------------------------------------------------------------------------
+  - name: "memory_persistence_workflow"
+    category: "memory"
+    difficulty: "medium"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      This is a two-phase task to test your persistent memory.
+
+      PHASE 1 — Capture context:
+        Remember the following facts using your memory tool:
+          1. "Project codename is FALCON"
+          2. "Primary language is Python 3.11"
+          3. "Database is PostgreSQL 15 running on localhost:5432"
+          4. "Deploy target is Render.com"
+        Then write a file `eval_memory/phase1_done.txt` with content "Phase 1 complete".
+
+      PHASE 2 — Demonstrate recall (do this in the same run):
+        Search your memory for "FALCON". Use whatever you find to write
+        `eval_memory/project_brief.md` — a brief with:
+          - Project codename
+          - Language and version
+          - Database connection string
+          - Deployment platform
+        The brief must be populated from your recalled memory, not hardcoded.
+        Finally write `eval_memory/phase2_done.txt` with "Phase 2 complete".
+
+    success_criteria:
+      files_must_exist:
+        - "eval_memory/phase1_done.txt"
+        - "eval_memory/project_brief.md"
+        - "eval_memory/phase2_done.txt"
+      file_must_contain:
+        - path: "eval_memory/project_brief.md"
+          contains: "FALCON"
+        - path: "eval_memory/project_brief.md"
+          contains: "PostgreSQL"
+        - path: "eval_memory/project_brief.md"
+          contains: "Render"
+      memory_recall: true
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 5 — "Add a feature, write tests, ship it"
+  #   Mirrors: "add pagination to my API and make sure tests cover it"
+  #   This is the closest to a real Claude Code / Codex session
+  # ---------------------------------------------------------------------------
+  - name: "feature_add_with_tests"
+    category: "feature_development"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "codex_cli", "openclaw"]
+
+    instructions: |
+      You are adding a new feature to an existing codebase.
+
+      Step 1 — Create the base project in `eval_feature/`:
+        - `store.py` — a simple in-memory key-value store class `KVStore` with
+          `set(key, val)`, `get(key)`, `delete(key)`, `list_keys()` methods.
+        - `test_store.py` — basic tests for the four methods.
+        Run pytest and confirm they pass before moving on.
+
+      Step 2 — Add a new feature to `store.py`:
+        - Add a `history(key)` method that returns a list of all past values
+          that were set for that key (not just the current one).
+        - Add a `snapshot()` method that returns a copy of the entire current
+          store as a dict.
+
+      Step 3 — Write new tests in `test_store.py` for `history()` and
+      `snapshot()`. Run pytest again and fix any failures before stopping.
+
+      Step 4 — Write `eval_feature/CHANGELOG.md` with a "## v1.1.0" section
+      describing the two new methods.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_feature/store.py"
+        - "eval_feature/test_store.py"
+        - "eval_feature/CHANGELOG.md"
+      commands_must_pass:
+        - "python -m pytest eval_feature/test_store.py -v"
+      file_must_contain:
+        - path: "eval_feature/store.py"
+          contains: "def history"
+        - path: "eval_feature/store.py"
+          contains: "def snapshot"
+        - path: "eval_feature/test_store.py"
+          contains: "test_history"
+        - path: "eval_feature/CHANGELOG.md"
+          contains: "v1.1.0"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 6 — "Investigate and explain a codebase"
+  #   Mirrors: "claude, read this repo and give me a report"
+  #   Tests: read_file, run_command, structured reporting
+  # ---------------------------------------------------------------------------
+  - name: "codebase_investigation_report"
+    category: "analysis"
+    difficulty: "medium"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      Investigate the Cell project's own source code (in the `src/cell/`
+      directory of the current working directory) and produce a technical
+      report WITHOUT modifying any source files.
+
+      Your report should be written to `eval_report/cell_analysis.md` and must
+      include:
+        1. **Architecture Overview** — describe the vascular loop, MCP tool
+           loading, and TUI in your own words (not copied verbatim).
+        2. **Tool Inventory** — list every tool the agent exposes, with a
+           one-line description of each.
+        3. **Identified Risks / Limitations** — at least 3 real usability or
+           reliability concerns you can identify from reading the code.
+        4. **Improvement Suggestions** — at least 2 concrete, actionable
+           suggestions a developer could implement.
+        5. **Line Count** — run a command to count lines in each .py file in
+           src/cell/ and include the results in a table.
+
+      Do not modify any source files. Only read and analyse.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_report/cell_analysis.md"
+      files_must_not_exist: []
+      file_must_contain:
+        - path: "eval_report/cell_analysis.md"
+          contains: "vascular"
+        - path: "eval_report/cell_analysis.md"
+          contains: "Limitation"
+        - path: "eval_report/cell_analysis.md"
+          contains: "read_file"
+      source_files_unchanged: true
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 7 — "Error recovery: fix a syntax error in my script"
+  #   Mirrors: clipboard paste gone wrong — agent must detect and fix
+  # ---------------------------------------------------------------------------
+  - name: "syntax_error_recovery"
+    category: "debugging"
+    difficulty: "easy"
+    comparable_to: ["claude_code", "codex_cli", "openclaw"]
+
+    instructions: |
+      Create a Python script `eval_syntax/pipeline.py` with the following
+      intentionally broken content (copy exactly, do not fix it first):
+
+      ```python
+      def process(data)
+          result = []
+          for item in data
+              if item > 0:
+                  result.append(item * 2
+          return result
+
+      if __name__ == "__main__"
+          print(process([1, -2, 3, 0, 5]))
+      ```
+
+      Then run `python eval_syntax/pipeline.py`. Observe the error. Fix the
+      script so it is valid Python. Run it again to confirm the output is:
+      `[2, 6, 10]`
+
+      Write `eval_syntax/FIX_NOTES.txt` with a one-line description of what
+      was wrong.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_syntax/pipeline.py"
+        - "eval_syntax/FIX_NOTES.txt"
+      commands_must_pass:
+        - "python eval_syntax/pipeline.py"
+      file_must_contain:
+        - path: "eval_syntax/pipeline.py"
+          contains: "def process(data):"
+        - path: "eval_syntax/FIX_NOTES.txt"
+          contains: "syntax"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 8 — "Multi-file search and replace"
+  #   Mirrors: renaming a class/function across an entire codebase
+  # ---------------------------------------------------------------------------
+  - name: "cross_file_rename_refactor"
+    category: "refactoring"
+    difficulty: "medium"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      Create a small project in `eval_rename/` with three files that all
+      reference a class called `DataProcessor`:
+
+        - `eval_rename/processor.py`   — defines class DataProcessor
+        - `eval_rename/pipeline.py`    — imports and uses DataProcessor
+        - `eval_rename/test_proc.py`   — tests DataProcessor
+
+      After creating the files, rename the class from `DataProcessor` to
+      `StreamProcessor` across all three files using replace_in_file.
+      Verify by running `python -m pytest eval_rename/test_proc.py -v` with
+      zero errors after the rename.
+
+      Write `eval_rename/RENAME_LOG.md` listing which files were changed.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_rename/processor.py"
+        - "eval_rename/pipeline.py"
+        - "eval_rename/test_proc.py"
+        - "eval_rename/RENAME_LOG.md"
+      commands_must_pass:
+        - "python -m pytest eval_rename/test_proc.py -v"
+      file_must_contain:
+        - path: "eval_rename/processor.py"
+          contains: "StreamProcessor"
+          not_contains: "DataProcessor"
+        - path: "eval_rename/pipeline.py"
+          contains: "StreamProcessor"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 9 — "One-shot: explain then implement"
+  #   Mirrors: "cell, what is a trie? Build one with tests."
+  # ---------------------------------------------------------------------------
+  - name: "learn_then_implement"
+    category: "code_generation"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "codex_cli", "openclaw"]
+
+    instructions: |
+      I want to learn about a data structure and then have you implement it.
+
+      1. Write `eval_trie/EXPLANATION.md` that explains what a Trie (prefix
+         tree) is, why it is useful, and lists 3 real-world use cases.
+         Keep it under 300 words.
+
+      2. Implement `eval_trie/trie.py` with a `Trie` class that supports:
+           - `insert(word: str) -> None`
+           - `search(word: str) -> bool`
+           - `starts_with(prefix: str) -> bool`
+           - `delete(word: str) -> bool`  (return False if word not found)
+
+      3. Write `eval_trie/test_trie.py` with at least 8 meaningful tests
+         covering: insert+search, missing word, prefix check, delete,
+         delete nonexistent, empty trie, single-char words, overlapping words.
+
+      4. Run `python -m pytest eval_trie/test_trie.py -v`. Fix any failures.
+         Only stop when all tests pass.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_trie/EXPLANATION.md"
+        - "eval_trie/trie.py"
+        - "eval_trie/test_trie.py"
+      commands_must_pass:
+        - "python -m pytest eval_trie/test_trie.py -v"
+      file_must_contain:
+        - path: "eval_trie/trie.py"
+          contains: "def insert"
+        - path: "eval_trie/trie.py"
+          contains: "def delete"
+        - path: "eval_trie/test_trie.py"
+          contains: "def test_"
+        - path: "eval_trie/EXPLANATION.md"
+          contains: "prefix"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 10 — "Git-aware task: commit my changes"
+  #   Mirrors: "cell, I just wrote some code, stage and commit it"
+  #   Tests: run_command with git, awareness of working directory
+  # ---------------------------------------------------------------------------
+  - name: "git_commit_workflow"
+    category: "devops"
+    difficulty: "easy"
+    comparable_to: ["openclaw", "claude_code"]
+
+    instructions: |
+      Create a new directory `eval_git_wf/` and work inside it.
+
+      1. Run `git init eval_git_wf` to initialise a new git repo.
+      2. Create `eval_git_wf/hello.py` with a function `greet(name)` that
+         returns `f"Hello, {name}!"`.
+      3. Create `eval_git_wf/.gitignore` with `__pycache__/` and `*.pyc`.
+      4. Run `git -C eval_git_wf add .`
+      5. Run `git -C eval_git_wf commit -m "feat: add greet function"`.
+      6. Verify the commit exists: run `git -C eval_git_wf log --oneline`
+         and write the output to `eval_git_wf/COMMIT_LOG.txt`.
+      7. Make a second change: add a `farewell(name)` function to `hello.py`.
+      8. Add and commit with message "feat: add farewell function".
+      9. Write `eval_git_wf/COMMIT_LOG.txt` again with the updated log
+         (should now show 2 commits).
+
+    success_criteria:
+      files_must_exist:
+        - "eval_git_wf/hello.py"
+        - "eval_git_wf/.gitignore"
+        - "eval_git_wf/COMMIT_LOG.txt"
+      file_must_contain:
+        - path: "eval_git_wf/hello.py"
+          contains: "def greet"
+        - path: "eval_git_wf/hello.py"
+          contains: "def farewell"
+        - path: "eval_git_wf/COMMIT_LOG.txt"
+          contains: "farewell"
+        - path: "eval_git_wf/COMMIT_LOG.txt"
+          contains: "greet"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 11 — "Build and test a CSV data pipeline"
+  #   Mirrors: "cell, I have sales CSVs, clean them and produce a summary"
+  #   Tests: file I/O, stdlib csv, data transformation, run_command validation
+  # ---------------------------------------------------------------------------
+  - name: "csv_data_pipeline"
+    category: "data_engineering"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "codex_cli", "openclaw"]
+
+    instructions: |
+      Build a small data pipeline in `eval_pipeline/`.
+
+      Step 1 — Write a Python script `eval_pipeline/generate_data.py` that
+      creates two CSV files:
+        - `eval_pipeline/data/sales_jan.csv` with columns: date, product, qty, price
+          and at least 5 rows of realistic-looking dummy data.
+        - `eval_pipeline/data/sales_feb.csv` with the same columns and 5 rows.
+      Run the script to produce the CSVs.
+
+      Step 2 — Write `eval_pipeline/pipeline.py` that:
+        - Reads both CSVs using the stdlib `csv` module (no pandas).
+        - Combines the rows.
+        - Computes per-product totals: total_qty and total_revenue (qty * price).
+        - Writes results to `eval_pipeline/output/summary.csv` with columns:
+          product, total_qty, total_revenue.
+        - Prints a formatted table of results to stdout.
+
+      Step 3 — Run `python eval_pipeline/pipeline.py` and verify it prints
+      output and creates `eval_pipeline/output/summary.csv`.
+
+      Step 4 — Write `eval_pipeline/test_pipeline.py` that:
+        - Creates two minimal in-memory CSV strings.
+        - Passes them through your pipeline logic.
+        - Asserts the summary totals are correct.
+      Run pytest on it and fix failures before stopping.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_pipeline/generate_data.py"
+        - "eval_pipeline/pipeline.py"
+        - "eval_pipeline/test_pipeline.py"
+        - "eval_pipeline/data/sales_jan.csv"
+        - "eval_pipeline/data/sales_feb.csv"
+        - "eval_pipeline/output/summary.csv"
+      commands_must_pass:
+        - "python -m pytest eval_pipeline/test_pipeline.py -v"
+      file_must_contain:
+        - path: "eval_pipeline/pipeline.py"
+          contains: "total_revenue"
+        - path: "eval_pipeline/output/summary.csv"
+          contains: "product"
+        - path: "eval_pipeline/test_pipeline.py"
+          contains: "def test_"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 12 — "Write a real argparse CLI tool"
+  #   Mirrors: "cell, make me a CLI utility I can actually ship"
+  #   Tests: argparse, --help, subcommands, integration test via run_command
+  # ---------------------------------------------------------------------------
+  - name: "argparse_cli_tool"
+    category: "tooling"
+    difficulty: "medium"
+    comparable_to: ["claude_code", "codex_cli", "openclaw"]
+
+    instructions: |
+      Create a command-line text utility in `eval_cli/`.
+
+      The tool is `eval_cli/textool.py`. It must support these subcommands:
+
+        python textool.py count <file>
+            — prints word count, line count, and char count of a file
+
+        python textool.py find <file> <pattern>
+            — searches the file line by line and prints matching lines
+              with line numbers (like grep -n)
+
+        python textool.py replace <file> <old> <new> --inplace
+            — replaces first occurrence of <old> with <new> in the file;
+              with --inplace it modifies the file, otherwise prints result
+
+      Implementation requirements:
+        - Use argparse with subparsers. Include a useful --help string on
+          each subcommand.
+        - Do not use any third-party packages.
+
+      After writing the tool:
+        1. Create `eval_cli/sample.txt` with at least 10 lines of text
+           containing the word "python" at least twice.
+        2. Run `python eval_cli/textool.py count eval_cli/sample.txt` and
+           confirm it prints numbers.
+        3. Run `python eval_cli/textool.py find eval_cli/sample.txt python`
+           and confirm it prints matching lines.
+        4. Run `python eval_cli/textool.py --help` to verify the help works.
+        5. Write `eval_cli/test_textool.py` with tests for all three
+           subcommands. Run pytest and fix failures.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_cli/textool.py"
+        - "eval_cli/sample.txt"
+        - "eval_cli/test_textool.py"
+      commands_must_pass:
+        - "python eval_cli/textool.py --help"
+        - "python eval_cli/textool.py count eval_cli/sample.txt"
+        - "python -m pytest eval_cli/test_textool.py -v"
+      file_must_contain:
+        - path: "eval_cli/textool.py"
+          contains: "add_subparsers"
+        - path: "eval_cli/textool.py"
+          contains: "def "
+        - path: "eval_cli/test_textool.py"
+          contains: "def test_"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 13 — "Add logging and observability to existing code"
+  #   Mirrors: "this script runs but I have no idea what it's doing, add logs"
+  #   Tests: replace_in_file surgical edits, logging stdlib, structured output
+  # ---------------------------------------------------------------------------
+  - name: "add_logging_to_existing_code"
+    category: "observability"
+    difficulty: "medium"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      You need to add production-grade logging to an existing module.
+
+      Step 1 — Create `eval_logging/worker.py` with the following stub
+      (write it exactly as given, do not add logging yet):
+
+        import time, random
+
+        def fetch_item(item_id):
+            time.sleep(0.01)
+            if random.random() < 0.2:
+                raise ValueError(f"item {item_id} not found")
+            return {"id": item_id, "value": random.randint(1, 100)}
+
+        def process_batch(ids):
+            results, errors = [], []
+            for id in ids:
+                try:
+                    results.append(fetch_item(id))
+                except ValueError as e:
+                    errors.append(str(e))
+            return results, errors
+
+        if __name__ == "__main__":
+            ok, err = process_batch(range(10))
+            print(f"ok={len(ok)} errors={len(err)}")
+
+      Step 2 — Using replace_in_file (not a full rewrite), add:
+        - A module-level logger: `logger = logging.getLogger(__name__)`
+        - DEBUG log at the start of fetch_item: "Fetching item {item_id}"
+        - WARNING log when ValueError is caught: "Failed: {e}"
+        - INFO log at the end of process_batch: "Batch done: {len(results)} ok, {len(errors)} errors"
+
+      Step 3 — Write `eval_logging/run_worker.py` that configures logging
+      to write to `eval_logging/worker.log` at DEBUG level, then calls
+      `process_batch(range(20))` and prints the summary.
+
+      Step 4 — Run `python eval_logging/run_worker.py`.
+      Verify `eval_logging/worker.log` exists and contains log entries.
+
+      Step 5 — Write `eval_logging/test_logging.py` that imports worker,
+      calls process_batch with a small list, and asserts:
+        - Return type is a tuple of two lists.
+        - No uncaught exceptions.
+      Run pytest.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_logging/worker.py"
+        - "eval_logging/run_worker.py"
+        - "eval_logging/worker.log"
+        - "eval_logging/test_logging.py"
+      commands_must_pass:
+        - "python -m pytest eval_logging/test_logging.py -v"
+      file_must_contain:
+        - path: "eval_logging/worker.py"
+          contains: "logging.getLogger"
+        - path: "eval_logging/worker.py"
+          contains: "logger.debug"
+        - path: "eval_logging/worker.log"
+          contains: "Batch done"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 14 — "Environment-driven configuration"
+  #   Mirrors: "cell, make this app read from .env and validate config on startup"
+  #   Tests: dotenv-style parsing, validation logic, config as code pattern
+  # ---------------------------------------------------------------------------
+  - name: "env_driven_config_validation"
+    category: "configuration"
+    difficulty: "medium"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      Create a config system for a web service in `eval_config/`.
+
+      Step 1 — Write `eval_config/.env.example` with these variables:
+          APP_ENV=development
+          DATABASE_URL=postgresql://user:pass@localhost:5432/mydb
+          SECRET_KEY=changeme
+          MAX_CONNECTIONS=10
+          DEBUG=true
+
+      Step 2 — Write `eval_config/config.py` with a `Config` class that:
+        - Reads variables from a real `.env` file using only the stdlib
+          (no python-dotenv) — open and parse the file manually.
+        - Exposes: app_env (str), database_url (str), secret_key (str),
+          max_connections (int), debug (bool).
+        - Has a `validate()` method that raises ValueError if:
+            - secret_key is "changeme"
+            - max_connections < 1 or > 100
+            - database_url doesn't start with "postgresql://" or "sqlite://"
+        - Has a `__repr__` that shows config but masks secret_key.
+
+      Step 3 — Create two .env files:
+        - `eval_config/.env.valid` — a valid config (change secret_key).
+        - `eval_config/.env.invalid` — an invalid one (secret_key=changeme).
+
+      Step 4 — Write `eval_config/test_config.py` testing:
+        - Loading valid config succeeds validate().
+        - Loading invalid config raises ValueError.
+        - max_connections is coerced to int.
+        - debug is coerced to bool.
+        - __repr__ does not expose the secret_key value.
+      Run pytest and fix failures.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_config/config.py"
+        - "eval_config/.env.example"
+        - "eval_config/.env.valid"
+        - "eval_config/.env.invalid"
+        - "eval_config/test_config.py"
+      commands_must_pass:
+        - "python -m pytest eval_config/test_config.py -v"
+      file_must_contain:
+        - path: "eval_config/config.py"
+          contains: "def validate"
+        - path: "eval_config/config.py"
+          contains: "ValueError"
+        - path: "eval_config/test_config.py"
+          contains: "test_"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 15 — "Write a patch then add a regression test"
+  #   Mirrors: "there's a bug in prod, fix it and make sure it never comes back"
+  #   Tests: targeted fix, write test that would have caught it, CI mindset
+  # ---------------------------------------------------------------------------
+  - name: "patch_and_regression_test"
+    category: "debugging"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "codex_cli", "openclaw"]
+
+    instructions: |
+      You are on-call. A bug was reported in `eval_patch/`.
+
+      Step 1 — Create the buggy module `eval_patch/paginator.py`:
+
+        def paginate(items, page, page_size):
+            """Return one page of items. Pages are 1-indexed."""
+            start = page * page_size          # BUG: should be (page-1)*page_size
+            end = start + page_size
+            return items[start:end]
+
+        def total_pages(total_items, page_size):
+            """Return total number of pages needed."""
+            return total_items / page_size    # BUG: should use ceiling division
+
+      Step 2 — Create `eval_patch/test_paginator.py` with tests that:
+        - Call paginate([0..19], page=1, page_size=5) and assert == [0,1,2,3,4]
+        - Call paginate([0..19], page=2, page_size=5) and assert == [5,6,7,8,9]
+        - Call total_pages(10, 3) and assert == 4 (ceiling)
+        - Call total_pages(9, 3) and assert == 3 (exact)
+
+      Run pytest — it MUST fail with these bugs in place. Confirm failures.
+
+      Step 3 — Fix both bugs in `eval_patch/paginator.py` using replace_in_file.
+      Run pytest again — all tests must now pass.
+
+      Step 4 — Write `eval_patch/BUG_REPORT.md` describing:
+        - What the bug was
+        - What the fix was
+        - Which test now catches it
+
+    success_criteria:
+      files_must_exist:
+        - "eval_patch/paginator.py"
+        - "eval_patch/test_paginator.py"
+        - "eval_patch/BUG_REPORT.md"
+      commands_must_pass:
+        - "python -m pytest eval_patch/test_paginator.py -v"
+      file_must_contain:
+        - path: "eval_patch/paginator.py"
+          contains: "page - 1"
+        - path: "eval_patch/paginator.py"
+          contains: "math.ceil"
+        - path: "eval_patch/BUG_REPORT.md"
+          contains: "bug"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 16 — "Parse a log file and extract insights"
+  #   Mirrors: "cell, my app logs are a mess, summarise what's happening"
+  #   Tests: text processing, regex, structured output, run_command + write
+  # ---------------------------------------------------------------------------
+  - name: "log_file_parser"
+    category: "analysis"
+    difficulty: "medium"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      Build a log analysis tool in `eval_logparse/`.
+
+      Step 1 — Write `eval_logparse/generate_log.py` that creates
+      `eval_logparse/app.log` with 200 lines in this format:
+          2024-01-15 09:23:41 INFO  [auth] User login: user42
+          2024-01-15 09:23:42 ERROR [db]   Connection timeout after 30s
+          2024-01-15 09:23:43 WARN  [api]  Rate limited: 192.168.1.5
+      Include at least 20 ERROR lines, 40 WARN lines, and 140 INFO lines,
+      spread across at least 3 modules (auth, db, api).
+      Run the generator script.
+
+      Step 2 — Write `eval_logparse/analyzer.py` with functions:
+        - `parse_log(path)` — returns list of dicts with keys:
+          timestamp, level, module, message
+        - `error_summary(entries)` — returns dict: module → error count
+        - `level_counts(entries)` — returns dict: level → count
+        - `top_errors(entries, n=5)` — returns the n most common error
+          messages (by exact message text)
+
+      Step 3 — Write `eval_logparse/report.py` that:
+        - Calls parse_log, level_counts, error_summary, top_errors.
+        - Writes `eval_logparse/report.md` as a markdown report with
+          sections: Summary, Errors by Module, Top Error Messages.
+        - Prints the report path when done.
+      Run it.
+
+      Step 4 — Write `eval_logparse/test_analyzer.py` with at least 4 tests
+      covering: parse_log output format, level_counts totals,
+      error_summary per-module, top_errors ordering.
+      Run pytest.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_logparse/generate_log.py"
+        - "eval_logparse/app.log"
+        - "eval_logparse/analyzer.py"
+        - "eval_logparse/report.py"
+        - "eval_logparse/report.md"
+        - "eval_logparse/test_analyzer.py"
+      commands_must_pass:
+        - "python -m pytest eval_logparse/test_analyzer.py -v"
+      file_must_contain:
+        - path: "eval_logparse/analyzer.py"
+          contains: "def parse_log"
+        - path: "eval_logparse/report.md"
+          contains: "ERROR"
+        - path: "eval_logparse/report.md"
+          contains: "Module"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 17 — "Async producer/consumer queue"
+  #   Mirrors: "build me a background worker that processes jobs from a queue"
+  #   Tests: asyncio.Queue, async/await, timeout handling, concurrency
+  # ---------------------------------------------------------------------------
+  - name: "async_job_queue"
+    category: "concurrency"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      Implement an async job processing system in `eval_async/`.
+
+      Write `eval_async/queue_worker.py` with:
+
+        class Job:
+            id: int
+            payload: str
+            result: str | None = None
+            error: str | None = None
+
+        async def process_job(job: Job) -> Job:
+            # Simulate async work: await asyncio.sleep(0.05)
+            # If payload starts with "fail:", set job.error and return
+            # Otherwise set job.result = f"processed: {payload.upper()}"
+
+        async def run_queue(jobs: list[Job], workers: int = 3) -> list[Job]:
+            # Put all jobs in an asyncio.Queue
+            # Spin up `workers` consumer coroutines
+            # Each consumer pulls from the queue, calls process_job, marks done
+            # Wait for all jobs to finish
+            # Return the completed jobs list
+
+      Implement fully — no stubs.
+
+      Then write `eval_async/test_queue.py` with tests that:
+        - Run 10 successful jobs and assert all have result set.
+        - Run 5 jobs where 2 have "fail:" prefixes, assert those have error set.
+        - Assert run_queue completes in < 1 second for 10 jobs with 3 workers
+          (use asyncio.wait_for or time.time).
+      Run pytest (pytest-asyncio must be used for async tests). Fix failures.
+
+      Write `eval_async/DESIGN.md` explaining the concurrency model in 5 lines.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_async/queue_worker.py"
+        - "eval_async/test_queue.py"
+        - "eval_async/DESIGN.md"
+      commands_must_pass:
+        - "python -m pytest eval_async/test_queue.py -v"
+      file_must_contain:
+        - path: "eval_async/queue_worker.py"
+          contains: "asyncio.Queue"
+        - path: "eval_async/queue_worker.py"
+          contains: "async def run_queue"
+        - path: "eval_async/test_queue.py"
+          contains: "pytest.mark.asyncio"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 18 — "Cross-session project continuity"
+  #   Mirrors: returning to a project and picking up where you left off
+  #   Tests: search_memory recall, reading existing files before editing,
+  #           incremental development workflow
+  # ---------------------------------------------------------------------------
+  - name: "cross_session_project_continuity"
+    category: "memory"
+    difficulty: "hard"
+    comparable_to: ["openclaw", "claude_code"]
+
+    instructions: |
+      This scenario simulates returning to a project after a break.
+
+      PHASE 1 — Establish project state (simulate "previous session"):
+        1. Remember these facts:
+           - "eval_continue project: REST API for a task manager app"
+           - "eval_continue stack: Python, Flask, SQLite via sqlite3 stdlib"
+           - "eval_continue status: /tasks GET and POST endpoints done, DELETE not yet"
+           - "eval_continue next: implement DELETE /tasks/<id> and add auth header check"
+        2. Create `eval_continue/app.py` with a working Flask app that has:
+             GET  /tasks      — returns a JSON list of all tasks (in-memory list)
+             POST /tasks      — creates a task, returns it with an id
+           But does NOT yet have DELETE.
+        3. Write `eval_continue/SESSION_NOTES.md` with today's date and
+           the note: "Implemented GET and POST. DELETE and auth TODO."
+
+      PHASE 2 — Resume (simulate "new session"):
+        4. Search your memory for "eval_continue". Read SESSION_NOTES.md.
+           Read app.py to understand current state.
+        5. Implement DELETE /tasks/<id> — returns 404 if id not found.
+        6. Add a simple auth check middleware: every request must include
+           header `X-API-Key: secret123` or the request returns 401.
+        7. Write `eval_continue/test_app.py` covering:
+             - GET /tasks returns 200 with auth header.
+             - POST /tasks creates a task.
+             - DELETE /tasks/<id> removes it.
+             - Any request without X-API-Key returns 401.
+        8. Run pytest. Fix failures.
+        9. Update SESSION_NOTES.md: append a new entry noting DELETE and
+           auth are now complete.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_continue/app.py"
+        - "eval_continue/SESSION_NOTES.md"
+        - "eval_continue/test_app.py"
+      commands_must_pass:
+        - "python -m pytest eval_continue/test_app.py -v"
+      file_must_contain:
+        - path: "eval_continue/app.py"
+          contains: "DELETE"
+        - path: "eval_continue/app.py"
+          contains: "X-API-Key"
+        - path: "eval_continue/test_app.py"
+          contains: "401"
+        - path: "eval_continue/SESSION_NOTES.md"
+          contains: "DELETE"
+          # Must also contain original notes AND the new update
+        - path: "eval_continue/SESSION_NOTES.md"
+          contains: "TODO"
+      memory_recall: true
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 19 — "SQLite schema migrations with rollback"
+  #   Mirrors: "cell, I need a proper migration system like Alembic but tiny"
+  #   Tests: sqlite3 stdlib, schema versioning, forward+rollback, CLI runner
+  # ---------------------------------------------------------------------------
+  - name: "sqlite_migration_system"
+    category: "database"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      Build a minimal database migration runner in `eval_migrations/`.
+
+      Step 1 — Write `eval_migrations/migrate.py` with:
+        - A `Migration` dataclass: id (int), name (str), up (str SQL),
+          down (str SQL).
+        - A `MigrationRunner` class that:
+            - Connects to a SQLite DB at a given path.
+            - Creates a `_migrations` tracking table if it doesn't exist
+              (columns: id INTEGER PRIMARY KEY, name TEXT, applied_at TEXT).
+            - `apply(migration)` — executes migration.up, records in
+              `_migrations`. Skips if already applied.
+            - `rollback(migration)` — executes migration.down, removes from
+              `_migrations`. Raises if not applied.
+            - `status()` — returns list of applied migration names.
+            - `migrate_all(migrations)` — applies all in order, skipping
+              already-applied ones.
+
+      Step 2 — Write `eval_migrations/migrations_list.py` defining 3 migrations:
+        - M001: create `users` table (id, name, email, created_at).
+        - M002: add `role TEXT DEFAULT 'user'` column to users.
+        - M003: create `posts` table (id, user_id FK, title, body, created_at).
+
+      Step 3 — Write `eval_migrations/run.py` as a CLI:
+          python run.py up          — apply all pending migrations
+          python run.py down <id>   — rollback migration by id
+          python run.py status      — print applied/pending migrations
+        Use argparse. Database path defaults to `./app.db`.
+
+      Step 4 — Run `python eval_migrations/run.py up`. Then run
+        `python eval_migrations/run.py status`. Confirm output lists all 3.
+        Run `python eval_migrations/run.py up` again — must be idempotent.
+
+      Step 5 — Write `eval_migrations/test_migrate.py` testing:
+        - apply() on a fresh DB creates the table and records the migration.
+        - apply() twice is idempotent.
+        - rollback() removes the migration record and runs down SQL.
+        - migrate_all() applies all 3 in order.
+        - status() returns correct names after partial apply.
+      Run pytest. Fix all failures.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_migrations/migrate.py"
+        - "eval_migrations/migrations_list.py"
+        - "eval_migrations/run.py"
+        - "eval_migrations/test_migrate.py"
+      commands_must_pass:
+        - "python eval_migrations/run.py up"
+        - "python eval_migrations/run.py status"
+        - "python -m pytest eval_migrations/test_migrate.py -v"
+      file_must_contain:
+        - path: "eval_migrations/migrate.py"
+          contains: "_migrations"
+        - path: "eval_migrations/migrate.py"
+          contains: "def rollback"
+        - path: "eval_migrations/migrate.py"
+          contains: "def migrate_all"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 20 — "Plugin system with dynamic loading"
+  #   Mirrors: "cell, design a plugin architecture I can drop .py files into"
+  #   Tests: importlib, registry pattern, hook interface, discovery
+  # ---------------------------------------------------------------------------
+  - name: "plugin_system_dynamic_loading"
+    category: "architecture"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      Build a plugin system in `eval_plugins/`.
+
+      Step 1 — Design the interface. Write `eval_plugins/base_plugin.py`:
+        - Abstract base class `BasePlugin` with:
+            name: str (class attribute)
+            version: str (class attribute)
+            def activate(self, context: dict) -> None
+            def deactivate(self) -> None
+            def execute(self, *args, **kwargs) -> any
+        - Use `abc.ABC` and `abc.abstractmethod`.
+
+      Step 2 — Write `eval_plugins/registry.py` with `PluginRegistry`:
+        - `register(plugin_cls)` — validates it's a subclass of BasePlugin,
+          raises TypeError if not.
+        - `discover(directory: str)` — scans a directory for .py files,
+          imports each with importlib, auto-registers any class that is a
+          non-abstract subclass of BasePlugin.
+        - `get(name: str)` — returns the plugin class or raises KeyError.
+        - `list_plugins()` — returns list of (name, version) tuples.
+        - `run(name, context, *args, **kwargs)` — instantiates the plugin,
+          calls activate(context), execute(*args, **kwargs), deactivate();
+          returns the result.
+
+      Step 3 — Create `eval_plugins/plugins/` directory with two real plugins:
+        - `eval_plugins/plugins/upper_plugin.py` — UpperPlugin that
+          executes by returning args[0].upper().
+        - `eval_plugins/plugins/word_count_plugin.py` — WordCountPlugin
+          that executes by returning len(args[0].split()).
+
+      Step 4 — Write `eval_plugins/demo.py` that:
+        - Creates a registry, calls discover("eval_plugins/plugins").
+        - Prints list_plugins().
+        - Runs UpperPlugin with "hello world" and prints result.
+        - Runs WordCountPlugin with "one two three four" and prints result.
+      Run it and verify output.
+
+      Step 5 — Write `eval_plugins/test_registry.py` testing:
+        - discover() finds and registers both plugins.
+        - register() rejects a non-BasePlugin class.
+        - run() returns correct results for both plugins.
+        - get() raises KeyError for unknown plugin name.
+      Run pytest. Fix all failures.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_plugins/base_plugin.py"
+        - "eval_plugins/registry.py"
+        - "eval_plugins/plugins/upper_plugin.py"
+        - "eval_plugins/plugins/word_count_plugin.py"
+        - "eval_plugins/demo.py"
+        - "eval_plugins/test_registry.py"
+      commands_must_pass:
+        - "python eval_plugins/demo.py"
+        - "python -m pytest eval_plugins/test_registry.py -v"
+      file_must_contain:
+        - path: "eval_plugins/registry.py"
+          contains: "importlib"
+        - path: "eval_plugins/registry.py"
+          contains: "def discover"
+        - path: "eval_plugins/base_plugin.py"
+          contains: "abstractmethod"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 21 — "Thread-safe LRU cache with TTL"
+  #   Mirrors: "cell, I need a cache layer — dict is too dumb, Redis is overkill"
+  #   Tests: OrderedDict or custom, threading.Lock, TTL expiry, decorator API
+  # ---------------------------------------------------------------------------
+  - name: "lru_cache_with_ttl"
+    category: "data_structures"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "codex_cli", "openclaw"]
+
+    instructions: |
+      Implement a production-quality LRU cache with TTL in `eval_lru/`.
+
+      Write `eval_lru/lru_cache.py` with a `LRUCache` class:
+        - `__init__(self, capacity: int, ttl_seconds: float = None)`
+        - `get(key)` — returns value or None if missing/expired; on hit,
+          moves key to most-recently-used position.
+        - `put(key, value)` — inserts/updates; evicts LRU entry if at
+          capacity; records insertion timestamp for TTL.
+        - `delete(key)` — removes a key explicitly.
+        - `clear()` — empties the cache.
+        - `size()` — returns current number of valid (non-expired) entries.
+        - Thread-safe: all public methods must hold a `threading.Lock`.
+        - TTL: if ttl_seconds is set and an entry is older than ttl_seconds,
+          get() treats it as a miss and removes it.
+
+      Also write a `@lru_cached(capacity, ttl_seconds=None)` decorator in the
+      same file that wraps a function with the LRUCache using its args as key.
+
+      Write `eval_lru/test_lru.py` with tests for:
+        - Basic get/put hit and miss.
+        - LRU eviction when capacity is exceeded.
+        - TTL expiry (use a very short TTL like 0.05s + time.sleep).
+        - Thread safety: 10 threads each writing 100 items — no exceptions,
+          final size <= capacity.
+        - The decorator caches repeated calls.
+        - delete() and clear() work correctly.
+      Run pytest. Fix all failures.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_lru/lru_cache.py"
+        - "eval_lru/test_lru.py"
+      commands_must_pass:
+        - "python -m pytest eval_lru/test_lru.py -v"
+      file_must_contain:
+        - path: "eval_lru/lru_cache.py"
+          contains: "threading.Lock"
+        - path: "eval_lru/lru_cache.py"
+          contains: "ttl_seconds"
+        - path: "eval_lru/lru_cache.py"
+          contains: "lru_cached"
+        - path: "eval_lru/test_lru.py"
+          contains: "test_ttl"
+        - path: "eval_lru/test_lru.py"
+          contains: "test_thread"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 22 — "Mini ORM query builder"
+  #   Mirrors: "I don't want SQLAlchemy, just something that generates SQL for me"
+  #   Tests: method chaining, SQL generation, parameterized queries, sqlite exec
+  # ---------------------------------------------------------------------------
+  - name: "mini_orm_query_builder"
+    category: "database"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      Build a fluent SQL query builder in `eval_orm/`.
+
+      Write `eval_orm/query.py` with a `Query` class supporting method chaining:
+        Query("users")
+            .select("id", "name", "email")
+            .where("age > ?", 18)
+            .where("active = ?", True)
+            .order_by("name", desc=False)
+            .limit(10)
+            .offset(20)
+            .build()
+        → returns tuple: (sql_string, params_list)
+
+      Supported methods:
+        - `select(*cols)` — columns to fetch (default *)
+        - `where(condition, *params)` — AND-chained WHERE clauses
+        - `order_by(col, desc=False)`
+        - `limit(n)` / `offset(n)`
+        - `build()` → (sql, params)
+
+        Also support INSERT, UPDATE, DELETE:
+        - `Query("users").insert(name="Alice", age=30).build()`
+        - `Query("users").update(active=False).where("id = ?", 5).build()`
+        - `Query("users").delete().where("id = ?", 5).build()`
+
+      Write `eval_orm/db.py` with a `Database` class:
+        - `__init__(path)` — opens sqlite3 connection.
+        - `execute(query_obj)` — calls query_obj.build(), runs the SQL with
+          params, returns rows as list of dicts.
+        - `create_table(name, **cols)` — generates and runs CREATE TABLE IF
+          NOT EXISTS from a dict of {col_name: sql_type}.
+
+      Write `eval_orm/test_orm.py` testing:
+        - SELECT builds correct SQL string.
+        - WHERE chains multiple conditions with AND.
+        - INSERT/UPDATE/DELETE build correct SQL.
+        - db.execute() with real SQLite returns correct rows.
+        - Parameterized queries prevent SQL injection (test with "'; DROP TABLE").
+      Run pytest. Fix all failures.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_orm/query.py"
+        - "eval_orm/db.py"
+        - "eval_orm/test_orm.py"
+      commands_must_pass:
+        - "python -m pytest eval_orm/test_orm.py -v"
+      file_must_contain:
+        - path: "eval_orm/query.py"
+          contains: "def where"
+        - path: "eval_orm/query.py"
+          contains: "def build"
+        - path: "eval_orm/query.py"
+          contains: "def insert"
+        - path: "eval_orm/test_orm.py"
+          contains: "injection"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 23 — "Add type annotations to a legacy codebase"
+  #   Mirrors: "cell, this old module has no types, annotate it and fix mypy"
+  #   Tests: read-before-edit, replace_in_file, mypy/pyright validation
+  # ---------------------------------------------------------------------------
+  - name: "type_annotate_legacy_code"
+    category: "refactoring"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      You are adding type annotations to legacy Python in `eval_types/`.
+
+      Step 1 — Create the legacy (unannotated) module `eval_types/legacy.py`:
+
+        from collections import defaultdict
+
+        def group_by(items, key_fn):
+            groups = defaultdict(list)
+            for item in items:
+                groups[key_fn(item)].append(item)
+            return dict(groups)
+
+        def flatten(nested):
+            result = []
+            for item in nested:
+                if isinstance(item, list):
+                    result.extend(flatten(item))
+                else:
+                    result.append(item)
+            return result
+
+        def chunk(lst, size):
+            return [lst[i:i+size] for i in range(0, len(lst), size)]
+
+        def merge_dicts(*dicts):
+            result = {}
+            for d in dicts:
+                result.update(d)
+            return result
+
+        class Pipeline:
+            def __init__(self):
+                self.steps = []
+            def add_step(self, fn):
+                self.steps.append(fn)
+                return self
+            def run(self, data):
+                for step in self.steps:
+                    data = step(data)
+                return data
+
+      Step 2 — Read the file. Using replace_in_file, add full type annotations
+      to every function and method. Use generics (TypeVar, list[T], dict[K,V],
+      Callable) from the `typing` module where needed. Do not change logic.
+
+      Step 3 — Run `python -m py_compile eval_types/legacy.py` to verify syntax.
+        Then run `python -m mypy eval_types/legacy.py --ignore-missing-imports`.
+        Fix any mypy errors reported. Rerun until mypy exits 0.
+
+      Step 4 — Write `eval_types/test_legacy.py` with tests proving the
+      functions still work correctly after annotation:
+        - group_by groups a list of dicts by a key.
+        - flatten handles 3-level nesting.
+        - chunk splits evenly and handles remainder.
+        - merge_dicts last key wins.
+        - Pipeline chains two transform functions.
+      Run pytest.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_types/legacy.py"
+        - "eval_types/test_legacy.py"
+      commands_must_pass:
+        - "python -m py_compile eval_types/legacy.py"
+        - "python -m pytest eval_types/test_legacy.py -v"
+      file_must_contain:
+        - path: "eval_types/legacy.py"
+          contains: "TypeVar"
+        - path: "eval_types/legacy.py"
+          contains: "Callable"
+        - path: "eval_types/legacy.py"
+          contains: "-> dict"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 24 — "Recursive directory diff tool"
+  #   Mirrors: "cell, compare two snapshots of my project folder"
+  #   Tests: os.walk, hashing, recursive comparison, structured report
+  # ---------------------------------------------------------------------------
+  - name: "directory_tree_differ"
+    category: "tooling"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      Build a directory comparison tool in `eval_diff/`.
+
+      Write `eval_diff/dirdiffer.py` with:
+        - `hash_file(path)` — returns MD5 hex digest of file contents.
+        - `snapshot(root)` — walks a directory tree and returns a dict:
+            { relative_path: md5_hash }  for every file.
+        - `diff(snap_a, snap_b)` — compares two snapshots and returns a dict:
+            {
+              "added":    [paths in b but not a],
+              "removed":  [paths in a but not b],
+              "modified": [paths in both but with different hash],
+              "unchanged": [paths identical in both]
+            }
+        - `report(diff_result, output_path)` — writes a markdown file with
+          four sections listing the files under each category.
+
+      Write `eval_diff/run.py` as a CLI:
+          python run.py <dir_a> <dir_b> [--output report.md]
+        Uses argparse. Prints summary counts and writes the report.
+
+      Write `eval_diff/test_dirdiffer.py` that:
+        - Uses tmp_path to create two directory trees with known differences:
+            dir_a: file1.txt ("hello"), file2.txt ("world"), file3.txt ("old")
+            dir_b: file1.txt ("hello"), file2.txt ("CHANGED"),  file4.txt ("new")
+          (file3 removed, file4 added, file2 modified, file1 unchanged)
+        - Asserts diff() produces exactly the right categorization.
+        - Asserts report() creates a file containing all four section names.
+      Run pytest. Fix all failures.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_diff/dirdiffer.py"
+        - "eval_diff/run.py"
+        - "eval_diff/test_dirdiffer.py"
+      commands_must_pass:
+        - "python -m pytest eval_diff/test_dirdiffer.py -v"
+      file_must_contain:
+        - path: "eval_diff/dirdiffer.py"
+          contains: "def snapshot"
+        - path: "eval_diff/dirdiffer.py"
+          contains: "def diff"
+        - path: "eval_diff/dirdiffer.py"
+          contains: "hashlib"
+        - path: "eval_diff/test_dirdiffer.py"
+          contains: "modified"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 25 — "Token bucket rate limiter"
+  #   Mirrors: "cell, I'm getting hammered by the API, add rate limiting"
+  #   Tests: time-based algorithm, thread safety, decorator, burst handling
+  # ---------------------------------------------------------------------------
+  - name: "token_bucket_rate_limiter"
+    category: "systems"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      Implement a token bucket rate limiter in `eval_ratelimit/`.
+
+      Write `eval_ratelimit/limiter.py` with:
+        - `TokenBucket` class:
+            `__init__(self, rate: float, capacity: float)`
+              rate = tokens added per second; capacity = max tokens.
+            `consume(tokens=1.0) -> bool`
+              Returns True if tokens available (and consumes them), False otherwise.
+              Refills proportionally to elapsed time since last call.
+            `wait_and_consume(tokens=1.0, timeout=None) -> bool`
+              Blocks (sleeps in small increments) until tokens available or
+              timeout exceeded. Returns True on success.
+            Thread-safe via threading.Lock.
+
+        - `RateLimiter` class managing multiple named buckets:
+            `__init__(self, rules: dict[str, tuple[float, float]])`
+              rules = {name: (rate, capacity)}
+            `is_allowed(name: str, tokens=1.0) -> bool`
+            `wait(name: str, tokens=1.0, timeout=None) -> bool`
+
+        - `@rate_limited(rate, capacity)` decorator that wraps a function,
+          raises `RateLimitExceeded` (custom exception) if consume() fails.
+
+      Write `eval_ratelimit/test_limiter.py` testing:
+        - Full bucket allows first N calls, then denies.
+        - Bucket refills after sleeping the right amount.
+        - wait_and_consume blocks and eventually succeeds.
+        - wait_and_consume returns False if timeout exceeded before refill.
+        - 20 threads calling consume() concurrently never exceed capacity.
+        - The decorator raises RateLimitExceeded correctly.
+      Run pytest. Fix all failures.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_ratelimit/limiter.py"
+        - "eval_ratelimit/test_limiter.py"
+      commands_must_pass:
+        - "python -m pytest eval_ratelimit/test_limiter.py -v"
+      file_must_contain:
+        - path: "eval_ratelimit/limiter.py"
+          contains: "threading.Lock"
+        - path: "eval_ratelimit/limiter.py"
+          contains: "def consume"
+        - path: "eval_ratelimit/limiter.py"
+          contains: "RateLimitExceeded"
+        - path: "eval_ratelimit/test_limiter.py"
+          contains: "refill"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 26 — "In-process event bus with middleware"
+  #   Mirrors: "cell, I want a lightweight pub/sub so modules don't import each other"
+  #   Tests: observer pattern, middleware chain, async handlers, wildcard topics
+  # ---------------------------------------------------------------------------
+  - name: "event_bus_with_middleware"
+    category: "architecture"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      Build an in-process event bus in `eval_eventbus/`.
+
+      Write `eval_eventbus/bus.py` with:
+        - `Event` dataclass: topic (str), payload (any), metadata (dict default {}).
+        - `EventBus` class:
+            `subscribe(topic, handler, priority=0)`
+              handler is a callable(event). Higher priority runs first.
+              topic supports "*" wildcard that matches every event.
+            `unsubscribe(topic, handler)`
+            `publish(event: Event)` — calls all matching handlers in
+              priority order. Catches and logs handler exceptions (never crash).
+            `use(middleware)` — registers middleware. Middleware is a callable
+              `(event, next_fn) -> None` where calling next_fn(event) continues
+              the chain. Applied before handlers.
+
+        - Built-in middleware:
+            `logging_middleware` — logs event.topic and type(event.payload).
+            `filter_middleware(excluded_topics)` — drops events whose topic
+              is in excluded_topics (calls next_fn only if not excluded).
+
+      Write `eval_eventbus/test_bus.py` testing:
+        - subscribe/publish delivers to registered handler.
+        - Multiple handlers called in priority order.
+        - Wildcard "*" handler receives all events.
+        - Handler exception does not prevent other handlers from running.
+        - Middleware chain: logging_middleware logs before handlers fire.
+        - filter_middleware stops excluded events before handlers.
+        - unsubscribe stops delivery.
+      Run pytest. Fix all failures.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_eventbus/bus.py"
+        - "eval_eventbus/test_bus.py"
+      commands_must_pass:
+        - "python -m pytest eval_eventbus/test_bus.py -v"
+      file_must_contain:
+        - path: "eval_eventbus/bus.py"
+          contains: "def publish"
+        - path: "eval_eventbus/bus.py"
+          contains: "def use"
+        - path: "eval_eventbus/bus.py"
+          contains: "wildcard"
+        - path: "eval_eventbus/test_bus.py"
+          contains: "priority"
+        - path: "eval_eventbus/test_bus.py"
+          contains: "middleware"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 27 — "Dependency graph resolver with cycle detection"
+  #   Mirrors: "cell, build a task runner that respects dependencies like Make"
+  #   Tests: topological sort, cycle detection, parallel-ready order, CLI
+  # ---------------------------------------------------------------------------
+  - name: "dependency_graph_resolver"
+    category: "algorithms"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "openclaw"]
+
+    instructions: |
+      Build a dependency resolver in `eval_depgraph/`.
+
+      Write `eval_depgraph/resolver.py` with:
+        - `DependencyGraph` class:
+            `add_node(name: str, deps: list[str] = [])` — register a node.
+            `resolve() -> list[str]` — returns nodes in topological order
+              (all deps before dependents). Raises `CyclicDependencyError`
+              (custom exception) if a cycle exists. Uses Kahn's algorithm
+              or DFS with colouring — your choice, but must be explicit.
+            `parallel_stages() -> list[list[str]]` — groups nodes into
+              stages where all nodes in a stage have their deps satisfied
+              by previous stages. Nodes in the same stage can run in parallel.
+            `ancestors(name) -> set[str]` — all transitive dependencies of node.
+            `dependents(name) -> set[str]` — all nodes that (transitively)
+              depend on node.
+
+      Write `eval_depgraph/test_resolver.py` testing:
+        - Linear chain: A→B→C resolves as [A, B, C] (or reverse if deps listed).
+        - Diamond: A→{B,C}→D resolves with D last, B/C in same stage.
+        - Cycle: A→B→A raises CyclicDependencyError.
+        - parallel_stages groups independent nodes together.
+        - ancestors(D) in diamond returns {A, B, C}.
+        - dependents(A) in diamond returns {B, C, D}.
+        - Empty graph resolves to [].
+        - Single node with no deps resolves to [node].
+      Run pytest. Fix all failures.
+
+      Write `eval_depgraph/ALGORITHM.md` explaining in plain English which
+      algorithm you chose and why, with a worked example.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_depgraph/resolver.py"
+        - "eval_depgraph/test_resolver.py"
+        - "eval_depgraph/ALGORITHM.md"
+      commands_must_pass:
+        - "python -m pytest eval_depgraph/test_resolver.py -v"
+      file_must_contain:
+        - path: "eval_depgraph/resolver.py"
+          contains: "CyclicDependencyError"
+        - path: "eval_depgraph/resolver.py"
+          contains: "def parallel_stages"
+        - path: "eval_depgraph/resolver.py"
+          contains: "def ancestors"
+        - path: "eval_depgraph/test_resolver.py"
+          contains: "CyclicDependencyError"
+      memory_recall: false
+
+  # ---------------------------------------------------------------------------
+  # SCENARIO 28 — "Full TDD red-green-refactor cycle"
+  #   Mirrors: "cell, write the tests first, then make them pass, then clean up"
+  #   Tests: agent follows TDD discipline, red→green→refactor all verified
+  # ---------------------------------------------------------------------------
+  - name: "tdd_red_green_refactor"
+    category: "testing"
+    difficulty: "hard"
+    comparable_to: ["claude_code", "codex_cli", "openclaw"]
+
+    instructions: |
+      You will implement a `BankAccount` class using strict TDD in `eval_tdd/`.
+
+      PHASE RED — write failing tests first (before any implementation):
+        Write `eval_tdd/test_account.py` with tests covering:
+          - `deposit(amount)` increases balance by amount.
+          - `withdraw(amount)` decreases balance; raises `InsufficientFunds`
+            if amount > balance.
+          - `transfer(amount, target_account)` moves money between accounts.
+          - `balance` property returns current balance.
+          - Depositing zero or negative raises `ValueError`.
+          - Withdrawing zero or negative raises `ValueError`.
+          - New account has balance 0.
+          - Transaction history: `history()` returns list of (type, amount) tuples.
+        Create `eval_tdd/account.py` as an empty stub (just `pass`).
+        Run pytest — it MUST fail. Record failure count in `eval_tdd/RED.txt`.
+
+      PHASE GREEN — minimum code to pass:
+        Implement `eval_tdd/account.py` with just enough code to make all
+        tests pass. No extra features.
+        Run pytest — all must pass. Record pass count in `eval_tdd/GREEN.txt`.
+
+      PHASE REFACTOR — improve without breaking:
+        Refactor `eval_tdd/account.py`:
+          - Extract a private `_validate_amount(amount)` method used by
+            both deposit and withdraw.
+          - Add a `__repr__` showing account id and balance.
+          - Add a class-level `_next_id` counter so each account gets a
+            unique integer id.
+        Run pytest again — still all pass. Record in `eval_tdd/REFACTOR.txt`.
+
+      Final: all three phase files must exist, and pytest must still exit 0.
+
+    success_criteria:
+      files_must_exist:
+        - "eval_tdd/test_account.py"
+        - "eval_tdd/account.py"
+        - "eval_tdd/RED.txt"
+        - "eval_tdd/GREEN.txt"
+        - "eval_tdd/REFACTOR.txt"
+      commands_must_pass:
+        - "python -m pytest eval_tdd/test_account.py -v"
+      file_must_contain:
+        - path: "eval_tdd/account.py"
+          contains: "InsufficientFunds"
+        - path: "eval_tdd/account.py"
+          contains: "_validate_amount"
+        - path: "eval_tdd/account.py"
+          contains: "_next_id"
+        - path: "eval_tdd/test_account.py"
+          contains: "def test_history"
+        - path: "eval_tdd/RED.txt"
+          contains: "fail"
+      memory_recall: false
+
+# =============================================================================
+# Test runner instructions (for use with test_app.py or a custom harness)
+# =============================================================================
+runner:
+  # Maximum wall-clock seconds to allow before declaring a scenario failed.
+  timeout_seconds: 300
+
+  # Each scenario runs in a fresh tmp_path (via pytest tmp_path fixture).
+  # The agent's cwd is set to tmp_path before the instructions are submitted.
+  cwd: tmp_path
+
+  # Grading: pass = all success_criteria satisfied.
+  # Partial credit: count how many criteria pass (for comparative benchmarks).
+  grading: strict_all_or_nothing
