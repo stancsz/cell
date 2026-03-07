@@ -78,6 +78,13 @@ def build_system_prompt() -> str:
         "- **Use search_memory** at the start of any task to recall relevant context from past sessions.\n"
         "- **Handle errors**: if a command fails, read the output, reason about the fix, and retry.\n"
         "- **Explore the filesystem**: use run_command with `dir` (Windows) or `ls -la` to understand project structure before acting.\n\n"
+        "## Completion Protocol — CRITICAL\n"
+        "Before considering ANY task done, you MUST:\n"
+        "1. Run `dir` (or `ls -la`) on every output directory to confirm every required file actually exists on disk.\n"
+        "2. If a required file is missing, create it immediately — do not skip it.\n"
+        "3. Your LAST action must always be a tool call (write_file, run_command, or read_file), never plain text.\n"
+        "   Outputting only text means you have stopped working — only do this after physically verifying all deliverables exist.\n"
+        "4. If pytest or any command times out, retry with a shorter subset or debug the failure — never give up.\n\n"
         "## Coding Standards\n"
         "- Write complete, working, production-quality code — no stubs, no placeholders, no TODOs.\n"
         "- Prefer simple, minimal implementations. Avoid unnecessary abstractions.\n"
@@ -101,6 +108,9 @@ class CellApp(App):
         self.initial_prompt = initial_prompt
         self.messages = [{"role": "system", "content": build_system_prompt()}]
         self.model = os.getenv("CELL_MODEL", "openai/gpt-5.2-codex")
+        # The original task is pinned here so context compaction can always
+        # restore it verbatim, even after multiple compaction cycles.
+        self._original_task: dict | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -123,7 +133,9 @@ class CellApp(App):
 
         if self.initial_prompt:
             log.write(f"\n[bold blue]User:[/bold blue] {self.initial_prompt}")
-            self.messages.append({"role": "user", "content": self.initial_prompt})
+            task_msg = {"role": "user", "content": self.initial_prompt}
+            self.messages.append(task_msg)
+            self._original_task = task_msg
             self.run_worker(self.process_llm())
 
     async def on_unmount(self) -> None:
@@ -139,18 +151,108 @@ class CellApp(App):
         self.query_one("#chat_input").value = ""
         log = self.query_one("#chat_log")
         log.write(f"\n[bold blue]User:[/bold blue] {user_input}")
-        self.messages.append({"role": "user", "content": user_input})
+        task_msg = {"role": "user", "content": user_input}
+        self.messages.append(task_msg)
+        # Pin the first user message as the original task so compaction never loses it.
+        if self._original_task is None:
+            self._original_task = task_msg
         logging.info(f"User Input: {user_input}")
         self.run_worker(self.process_llm())
+
+    async def compact_context(self) -> None:
+        """Summarize completed work into a digest so the agent never forgets its task.
+
+        Strategy:
+          [0]  system prompt          — always kept verbatim
+          [1]  original user task     — always kept verbatim (the spec to satisfy)
+          [2]  <DIGEST>               — LLM-written summary of what has been done so far
+          [-20:]  recent messages     — kept verbatim for immediate tool context
+        """
+        log = self.query_one("#chat_log")
+        log.write("[dim]⟳ Compacting context…[/dim]")
+        logging.info("Context compaction triggered.")
+
+        # Everything between the original task and the recent tail is summarised.
+        tail_keep = 20
+        # Find the original task: use the pinned reference, fall back to messages[1].
+        original_task = self._original_task or self.messages[1]
+        middle = self.messages[2 : len(self.messages) - tail_keep]
+        recent  = self.messages[-tail_keep:]
+
+        if not middle:
+            return  # nothing old enough to compact
+
+        # Build a summarisation prompt using the same model.
+        summarise_messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a context compactor for an autonomous coding agent. "
+                    "You will be given a sequence of messages showing the agent's work so far. "
+                    "Produce a compact, bullet-point PROGRESS DIGEST that captures:\n"
+                    "  • Which files have been created or modified (with paths).\n"
+                    "  • Which commands were run and their key outcomes.\n"
+                    "  • Which sub-tasks are complete, and which are still outstanding.\n"
+                    "  • Any errors encountered and how they were resolved.\n"
+                    "Be dense and precise. Do NOT omit file paths or outstanding steps. "
+                    "Maximum 400 words."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Here is the agent's message history to summarise:\n\n"
+                    + "\n".join(
+                        f"[{m['role'].upper()}] "
+                        + (
+                            m.get("content") or
+                            str([tc.get("function", {}).get("name") for tc in m.get("tool_calls", [])])
+                        )[:400]
+                        for m in middle
+                    )
+                ),
+            },
+        ]
+
+        try:
+            digest_response = await acompletion(
+                model=self.model,
+                messages=summarise_messages,
+                stream=False,
+            )
+            digest_text = digest_response.choices[0].message.content or "(no digest)"
+        except Exception as e:
+            digest_text = f"(compaction failed: {e})"
+            logging.warning(f"Context compaction failed: {e}")
+
+        digest_msg = {
+            "role": "user",
+            "content": (
+                "[CONTEXT COMPACTED — PROGRESS DIGEST]\n"
+                "The following summarises what has been accomplished so far. "
+                "Your original task instructions above still apply in full — "
+                "continue from where you left off.\n\n"
+                + digest_text
+            ),
+        }
+
+        # Rebuild: system + original_task (pinned) + digest + recent tail
+        self.messages = [self.messages[0], original_task, digest_msg] + recent
+        log.write(f"[dim]✓ Context compacted. Digest: {len(digest_text)} chars. "
+                  f"Messages: {len(self.messages)}[/dim]")
+        logging.info(f"Context compacted. New length: {len(self.messages)}")
 
     async def process_llm(self) -> None:
         """The core vascular loop (Reasoning & Tool-Use)."""
         log = self.query_one("#chat_log")
         try:
             while True:
-                # Context trimming: keep system prompt + last 40 messages (more headroom for tool chains)
-                if len(self.messages) > 41:
-                    self.messages = [self.messages[0]] + self.messages[-40:]
+                # Context compaction: when messages grow too large, summarise the
+                # middle history while preserving [system, original_task, recent_20].
+                # This ensures the agent never forgets its task, unlike hard truncation.
+                max_ctx = int(os.getenv("CELL_MAX_CONTEXT", "80"))
+                if len(self.messages) > max_ctx:
+                    await self.compact_context()
 
                 all_tools = TOOLS + getattr(self, "mcp_tools", [])
                 logging.debug("Sending completion request to model: " + self.model)

@@ -43,7 +43,9 @@ def replace_in_file(path: str, target_text: str, replacement_text: str) -> str:
 
 @mcp.tool()
 async def run_command(command: str) -> str:
-    """Run a terminal command and return its output. Automatically times out after 20 seconds to prevent hanging."""
+    """Run a terminal command and return its output. Times out after 120 seconds (configurable via CELL_CMD_TIMEOUT env var)."""
+    import os as _os
+    timeout = float(_os.environ.get("CELL_CMD_TIMEOUT", "120"))
     try:
         proc = await asyncio.create_subprocess_shell(
             command,
@@ -51,17 +53,17 @@ async def run_command(command: str) -> str:
             stderr=asyncio.subprocess.STDOUT
         )
         try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=20.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
             output = stdout.decode("utf-8", errors="replace")
-            
+
             if proc.returncode != 0:
                 return f"Command failed with exit code {proc.returncode}\nOutput:\n{output}"
             return f"STDOUT/STDERR:\n{output}"
-            
+
         except asyncio.TimeoutError:
             proc.kill()
-            return f"Error: Command timed out after 20 seconds. It was forcefully killed."
-            
+            return f"Error: Command timed out after {timeout:.0f} seconds. It was forcefully killed."
+
     except Exception as e:
         return f"Error running command: {e}"
 
