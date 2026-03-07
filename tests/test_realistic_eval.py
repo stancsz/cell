@@ -165,6 +165,15 @@ async def test_realistic_scenario(scenario, tmp_path):
                 if sentinel and sentinel.exists():
                     break
 
+        # Dump the message chain to diagnose model stops
+        with open(tmp_path / "agent_messages.json", "w", encoding="utf-8") as fm:
+            dumpable = []
+            for m in app.messages:
+                if hasattr(m, 'model_dump'): dumpable.append(m.model_dump())
+                elif type(m) is dict: dumpable.append(m)
+                else: dumpable.append(str(m))
+            fm.write(json.dumps(dumpable, indent=2))
+
         failures = _check_criteria(scenario, tmp_path)
         _log_result(scenario["name"], passed=not failures, failures=failures)
         assert not failures, (

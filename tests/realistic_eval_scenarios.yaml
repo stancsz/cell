@@ -344,7 +344,7 @@ scenarios:
         - path: "eval_syntax/pipeline.py"
           contains: "def process(data):"
         - path: "eval_syntax/FIX_NOTES.txt"
-          contains: "syntax"
+          contains: "colon"
           not_contains: "DEBUGGING IN PROGRESS"
       memory_recall: false
 
