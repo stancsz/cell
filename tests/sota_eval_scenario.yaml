@@ -1,0 +1,26 @@
+name: "20-Task Autonomous Stress Test"
+tasks:
+  - "Run a command to create a directory named `sota_eval_test`."
+  - "Run a command to initialize a git repository inside `sota_eval_test`."
+  - "Create a file `sota_eval_test/README.md` with a title and description of this test."
+  - "Create a file `sota_eval_test/requirements.txt` with the content \"pytest\\nrequests\\nboto3\\n\"."
+  - "Create a file `sota_eval_test/math_lib.py` containing a function `fibonacci(n)` that returns a list of Fibonacci numbers up to `n`."
+  - "Create a file `sota_eval_test/test_math.py` that imports `fibonacci` and tests it for `n=5`."
+  - "Create a file `sota_eval_test/string_utils.py` containing a function `reverse_string(s)` that reverses a string."
+  - "Create a file `sota_eval_test/test_strings.py` that tests `reverse_string`."
+  - "Create a file `sota_eval_test/app.py` that imports both functions and prints a reversed string of a fibonacci number."
+  - "Use `replace_in_file` on `sota_eval_test/app.py` to add a comment at the top saying `# SOTA Evaluator App`."
+  - "Run a command to execute `python -m pytest sota_eval_test/test_math.py`."
+  - "Run a command to execute `python -m pytest sota_eval_test/test_strings.py`."
+  - "Run a command to execute `python sota_eval_test/app.py` and capture the output."
+  - "Create a folder `sota_eval_test/data`."
+  - "Create a file `sota_eval_test/data/config.json` with some dummy JSON configuration."
+  - "Write a file `sota_eval_test/config_reader.py` that reads the JSON config."
+  - "Make a tool call to read `sota_eval_test/data/config.json` to verify it was written correctly."
+  - "Use `replace_in_file` on `sota_eval_test/README.md` to add a line \"- Completed JSON config\"."
+  - "Remember the fact that \"SOTA evaluation reached step 19 successfully\" using the remember tool."
+  - "Create a file `sota_eval_test/SUCCESS.txt` containing the text \"ALL 20 TASKS COMPLETED SUCCESSFULLY\"."
+instructions: |
+  We are doing a live evaluation. I need you to autonomously complete a sequence of 20 tasks using your available tools (write_file, read_file, run_command, replace_in_file).
+  Do not stop until you have completed all 20 tasks. You can orchestrate them across multiple tool calls and reason about the outputs.
+  Begin executing now. Once you see the output of the final task, you may explain your success.
