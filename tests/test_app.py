@@ -33,10 +33,10 @@ async def test_cell_remember_tool_live(mock_mcp):
     """Integration: live LLM call triggers the remember built-in tool."""
     app = CellApp()
     async with app.run_test() as pilot:
-        await pilot.press("tab")
-        input_widget = app.query_one("#chat_input")
+        from textual.widgets import Input
+        input_widget = app.query_one("#chat_input", Input)
         input_widget.value = "Remember that the secret password is 'SQUIRREL_123'."
-        await input_widget.action_submit()
+        input_widget.post_message(Input.Submitted(input_widget, input_widget.value))
 
         # run_worker spawns a thread-pool worker, so we must use asyncio.sleep
         # (not pilot.pause) to give those threads a chance to complete.
