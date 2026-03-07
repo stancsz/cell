@@ -1,1 +1,4 @@
-{"scenario": "syntax_error_recovery", "passed": true, "failures": []}
+{"scenario": "lru_cache_with_ttl", "passed": true, "failures": []}
+{"scenario": "plugin_system_dynamic_loading", "passed": true, "failures": []}
+{"scenario": "mini_orm_query_builder", "passed": true, "failures": []}
+{"scenario": "sqlite_migration_system", "passed": true, "failures": []}
