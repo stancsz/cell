@@ -299,7 +299,11 @@ scenarios:
     comparable_to: ["claude_code", "codex_cli", "openclaw"]
 
     instructions: |
-      Create a Python script `eval_syntax/pipeline.py` with the following
+      Step 1 — Create the directory `eval_syntax/` and inside it create
+      `eval_syntax/FIX_NOTES.txt` with the placeholder text:
+      "DEBUGGING IN PROGRESS"
+
+      Step 2 — Create `eval_syntax/pipeline.py` with the following
       intentionally broken content (copy exactly, do not fix it first):
 
       ```python
@@ -314,12 +318,21 @@ scenarios:
           print(process([1, -2, 3, 0, 5]))
       ```
 
-      Then run `python eval_syntax/pipeline.py`. Observe the error. Fix the
-      script so it is valid Python. Run it again to confirm the output is:
-      `[2, 6, 10]`
+      Step 3 — Run `python eval_syntax/pipeline.py`. Observe the SyntaxError.
 
-      Write `eval_syntax/FIX_NOTES.txt` with a one-line description of what
-      was wrong.
+      Step 4 — Fix `eval_syntax/pipeline.py` so it is valid Python with all
+      missing colons and parentheses corrected.
+
+      Step 5 — Run `python eval_syntax/pipeline.py` again and confirm the
+      output is exactly: `[2, 6, 10]`
+
+      Step 6 — Update `eval_syntax/FIX_NOTES.txt` using replace_in_file:
+      replace "DEBUGGING IN PROGRESS" with a one-line description of every
+      syntax error you found (e.g. "Missing colons after def/for/if/main,
+      unclosed parenthesis in append call").
+
+      Step 7 — Read `eval_syntax/FIX_NOTES.txt` back to confirm the content
+      is correct and no longer says "DEBUGGING IN PROGRESS".
 
     success_criteria:
       files_must_exist:
@@ -332,7 +345,9 @@ scenarios:
           contains: "def process(data):"
         - path: "eval_syntax/FIX_NOTES.txt"
           contains: "syntax"
+          not_contains: "DEBUGGING IN PROGRESS"
       memory_recall: false
+
 
   # ---------------------------------------------------------------------------
   # SCENARIO 8 — "Multi-file search and replace"

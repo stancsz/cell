@@ -245,6 +245,7 @@ class CellApp(App):
     async def process_llm(self) -> None:
         """The core vascular loop (Reasoning & Tool-Use)."""
         log = self.query_one("#chat_log")
+        no_tool_retries = 0
         try:
             while True:
                 # Context compaction: when messages grow too large, summarise the
@@ -289,8 +290,28 @@ class CellApp(App):
                     self.messages.append({"role": "assistant", "content": response_message.content})
 
                 if not response_message.tool_calls:
-                    break
+                    no_tool_retries += 1
+                    if no_tool_retries >= 3:
+                        log.write("[bold red]System:[/bold red] Repeated text-only responses. Pausing for user input.")
+                        break
 
+                    # In autonomous execution, if the model stops tool-calling
+                    # before the task is done, prompt it to continue rather than aborting.
+                    log.write(f"[bold red]System:[/bold red] No tool calls detected (Retry {no_tool_retries}/3).")
+                    logging.info(f"No tool calls detected. Prompting to continue ({no_tool_retries}/3).")
+                    self.messages.append(response_message.model_dump())
+                    self.messages.append({
+                        "role": "user",
+                        "content": (
+                            "You replied with plain text and no tool calls. "
+                            "If you are finished with the ENTIRE task, create the 'DONE.txt' "
+                            "file (or equivalent final artifact) using write_file to signal completion. "
+                            "Otherwise, you MUST use a tool to continue your work."
+                        )
+                    })
+                    continue
+
+                no_tool_retries = 0
                 self.messages.append(response_message.model_dump())
 
                 for tool_call in response_message.tool_calls:
