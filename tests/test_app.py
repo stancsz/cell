@@ -33,10 +33,7 @@ async def test_cell_remember_tool_live(mock_mcp):
     """Integration: live LLM call triggers the remember built-in tool."""
     app = CellApp()
     async with app.run_test() as pilot:
-        from textual.widgets import Input
-        input_widget = app.query_one("#chat_input", Input)
-        input_widget.value = "Remember that the secret password is 'SQUIRREL_123'."
-        input_widget.post_message(Input.Submitted(input_widget, input_widget.value))
+        app.submit_chat_input("Remember that the secret password is 'SQUIRREL_123'.")
 
         # run_worker spawns a thread-pool worker, so we must use asyncio.sleep
         # (not pilot.pause) to give those threads a chance to complete.
@@ -58,6 +55,7 @@ async def test_sota_eval_scenario_live(tmp_path, mock_mcp):
     import os
     original_cwd = os.getcwd()
     os.chdir(str(tmp_path))
+    os.environ["CELL_EVAL_MODE"] = "1"
     try:
         scenario_path = Path(__file__).parent / "sota_eval_scenario.yaml"
         data = yaml.safe_load(scenario_path.read_text(encoding="utf-8"))
@@ -73,3 +71,4 @@ async def test_sota_eval_scenario_live(tmp_path, mock_mcp):
             assert success_file.exists(), "Agent failed to create SUCCESS.txt within 240 s."
     finally:
         os.chdir(original_cwd)
+        os.environ.pop("CELL_EVAL_MODE", None)

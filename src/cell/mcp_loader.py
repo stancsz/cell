@@ -49,6 +49,7 @@ async def load_mcp_servers(stack: AsyncExitStack):
             # Format for litellm. The inputSchema is natively a dict
             mcp_tools.extend([{"type": "function", "function": {"name": f"{name}__{t.name}", "description": t.description or "", "parameters": t.inputSchema}} for t in response.tools])
         except Exception as e:
-            print(f"Failed to load MCP server {name}: {e}")
+            import logging
+            logging.error(f"Failed to load MCP server {name}: {e}")
             
     return sessions, mcp_tools

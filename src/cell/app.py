@@ -10,14 +10,25 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Input, RichLog
+from textual.widgets import Header, Footer, Input, RichLog, TextArea, Label
+from textual.binding import Binding
+import litellm
 from litellm import acompletion, stream_chunk_builder
+
+litellm.suppress_debug_info = True
+litellm.set_verbose = False
 
 from cell.mcp_loader import load_mcp_servers
 import logging
 
 LOG_FILE = Path.home() / ".cell" / "cell.log"
-logging.basicConfig(filename=str(LOG_FILE), level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(message)s')
+logging.basicConfig(
+    filename=str(LOG_FILE), 
+    level=logging.INFO, 
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    force=True
+)
+logging.getLogger("LiteLLM").setLevel(logging.ERROR)
 
 MEMORY_FILE = Path.home() / ".cell" / "context.md"
 
@@ -31,6 +42,29 @@ def save_memory(fact: str) -> str:
     with open(MEMORY_FILE, "a") as f:
         f.write(f"\n- {fact}")
     return f"Fact remembered: {fact}"
+
+ASCII_ART = r"""
+[bold cyan] █▀▀ █▀▀ █   █   [/bold cyan] [white]CELL[/white] [dim]v1.0[/dim]
+[bold cyan] █   █▀▀ █   █   [/bold cyan] [dim]───────[/dim]
+[bold cyan] ▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀ [/bold cyan] [bold white]READY[/bold white]
+"""
+
+class ChatInput(TextArea):
+    """Multiline input that submits on Enter and newlines on Shift+Enter."""
+    BINDINGS = [
+        Binding("enter", "submit", "Submit Message", show=True, priority=True),
+        Binding("shift+enter", "newline", "Newline", show=True, priority=True),
+    ]
+
+    def action_submit(self) -> None:
+        text = self.text.strip()
+        if text:
+            # Forward the text to the parent app and clear
+            self.app.submit_chat_input(text)
+            self.text = ""
+
+    def action_newline(self) -> None:
+        self.insert("\n")
 
 def search_memory(query: str) -> str:
     """Search memory for lines matching a query (case-insensitive)."""
@@ -63,6 +97,18 @@ TOOLS = [
 ]
 
 def build_system_prompt() -> str:
+    is_eval = os.getenv("CELL_EVAL_MODE", "0") == "1"
+
+    completion_protocol = (
+        "3. Your LAST action must always be a tool call (write_file, run_command, or read_file), never plain text.\n"
+        "   Outputting only text means you have stopped working — only do this after physically verifying all deliverables exist.\n"
+        "4. If pytest or any command times out, retry with a shorter subset or debug the failure — never give up.\n"
+        "5. WHEN YOU ARE 100% FINISHED, use write_file to create a file named `.eval_done` in the current directory containing the word 'DONE'. This is how you signal completion.\n\n"
+    ) if is_eval else (
+        "3. When you are finished, or if you need to ask the user a clarifying question, simply communicate it using plain text. Do not force tool usage if it's unnecessary.\n"
+        "4. If a command times out, retry it or debug it.\n\n"
+    )
+
     return (
         "You are CELL, an autonomous AI coding and operations agent running in a terminal.\n\n"
         "## Core Directive\n"
@@ -82,10 +128,7 @@ def build_system_prompt() -> str:
         "Before considering ANY task done, you MUST:\n"
         "1. Run `dir` (or `ls -la`) on every output directory to confirm every required file actually exists on disk.\n"
         "2. If a required file is missing, create it immediately — do not skip it.\n"
-        "3. Your LAST action must always be a tool call (write_file, run_command, or read_file), never plain text.\n"
-        "   Outputting only text means you have stopped working — only do this after physically verifying all deliverables exist.\n"
-        "4. If pytest or any command times out, retry with a shorter subset or debug the failure — never give up.\n"
-        "5. WHEN YOU ARE 100% FINISHED, use write_file to create a file named `.eval_done` in the current directory containing the word 'DONE'. This is how you signal completion.\n\n"
+        f"{completion_protocol}"
         "## Coding Standards\n"
         "- Write complete, working, production-quality code — no stubs, no placeholders, no TODOs.\n"
         "- Prefer simple, minimal implementations. Avoid unnecessary abstractions.\n"
@@ -101,7 +144,30 @@ def build_system_prompt() -> str:
 class CellApp(App):
     """A minimalist terminal interface for Cell using Textual."""
 
-    CSS = "Screen {background: $surface;} Input {dock: bottom; margin: 1; border: solid $primary;} RichLog {height: 1fr; padding: 1; background: $surface; border: solid $secondary;}"
+    CSS = """
+    Screen {
+        background: $background;
+    }
+    RichLog {
+        height: 1fr;
+        padding: 0 1;
+        background: $background;
+        border: none;
+    }
+    #status_label {
+        color: $accent;
+        padding: 0 2;
+        text-style: italic;
+    }
+    ChatInput {
+        dock: bottom;
+        height: auto;
+        max-height: 40%;
+        margin: 1 2;
+        border: round $primary;
+        background: $surface;
+    }
+    """
     BINDINGS = [("ctrl+c", "quit", "Quit"), ("ctrl+l", "clear", "Clear")]
 
     def __init__(self, initial_prompt: str = None):
@@ -116,12 +182,14 @@ class CellApp(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield RichLog(id="chat_log", highlight=True, markup=True)
-        yield Input(placeholder="Ask Cell...", id="chat_input")
+        yield Label("", id="status_label")
+        yield ChatInput(id="chat_input", text="", language="markdown")
         yield Footer()
 
     async def on_mount(self) -> None:
         self.query_one("#chat_input").focus()
         log = self.query_one("#chat_log")
+        log.write(ASCII_ART)
         log.write("[bold green]CELL[/bold green] initialized. Loading extensions...")
 
         self.mcp_stack = AsyncExitStack()
@@ -133,7 +201,7 @@ class CellApp(App):
         log.write("Ready for signals.")
 
         if self.initial_prompt:
-            log.write(f"\n[bold blue]User:[/bold blue] {self.initial_prompt}")
+            log.write(f"[bold blue]User:[/bold blue] {self.initial_prompt}")
             task_msg = {"role": "user", "content": self.initial_prompt}
             self.messages.append(task_msg)
             self._original_task = task_msg
@@ -145,13 +213,11 @@ class CellApp(App):
     def action_clear(self) -> None:
         self.query_one("#chat_log").clear()
 
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        if not event.value.strip():
-            return
-        user_input = event.value
-        self.query_one("#chat_input").value = ""
+    def submit_chat_input(self, user_input: str) -> None:
+        self.query_one("#chat_input").text = ""
         log = self.query_one("#chat_log")
-        log.write(f"\n[bold blue]User:[/bold blue] {user_input}")
+        # Pretty print
+        log.write(f"[bold blue]User:[/bold blue] {user_input}")
         task_msg = {"role": "user", "content": user_input}
         self.messages.append(task_msg)
         # Pin the first user message as the original task so compaction never loses it.
@@ -246,9 +312,12 @@ class CellApp(App):
     async def process_llm(self) -> None:
         """The core vascular loop (Reasoning & Tool-Use)."""
         log = self.query_one("#chat_log")
+        status_label = self.query_one("#status_label", Label)
         no_tool_retries = 0
         try:
             while True:
+                status_label.update("")
+                
                 # Context compaction: when messages grow too large, summarise the
                 # middle history while preserving [system, original_task, recent_20].
                 # This ensures the agent never forgets its task, unlike hard truncation.
@@ -257,8 +326,38 @@ class CellApp(App):
                     await self.compact_context()
 
                 all_tools = TOOLS + getattr(self, "mcp_tools", [])
+                
+                # Fast route check to avoid long thinking on simple conversational inputs
+                if self.messages[-1]["role"] == "user" and os.getenv("CELL_EVAL_MODE", "0") != "1":
+                    status_label.update("Determining tool requirements...")
+                    router_prompt = {
+                        "role": "user",
+                        "content": (
+                            "Analyze my previous message carefully. "
+                            "If it requires ANY system action (e.g. running commands, reading/writing files, viewing directories, modifying code, saving/searching memory, testing, etc.), reply with the exact word 'TOOLS'. "
+                            "If it is STRICTLY a simple conversational greeting, an acknowledgment (like 'ok' or 'thanks'), or a generic question that requires zero system access or memory operations, reply with the exact word 'CONVERSATION'."
+                        )
+                    }
+                    try:
+                        router_resp = await acompletion(
+                            model=self.model,
+                            messages=[self.messages[-1], router_prompt],
+                            max_tokens=10,
+                            temperature=0,
+                            stream=False
+                        )
+                        decision = router_resp.choices[0].message.content.strip().upper()
+                        if "CONVERSATION" in decision:
+                            all_tools = []
+                            logging.info("Router decided: CONVERSATION (skipping tools)")
+                        else:
+                            logging.info(f"Router decided: {decision} (using tools)")
+                    except Exception as e:
+                        logging.warning(f"Router check failed: {e}")
+
                 logging.debug("Sending completion request to model: " + self.model)
 
+                status_label.update("Thinking...")
                 response_stream = await acompletion(
                     model=self.model,
                     messages=self.messages,
@@ -268,7 +367,9 @@ class CellApp(App):
 
                 chunks = []
                 buffer = ""
-                log.write("\n")
+                status_label.update("")
+                
+                is_first_line = True
 
                 async for chunk in response_stream:
                     chunks.append(chunk)
@@ -278,11 +379,14 @@ class CellApp(App):
                         if "\n" in buffer:
                             parts = buffer.split("\n")
                             for part in parts[:-1]:
-                                log.write(f"[bold magenta]Cell:[/bold magenta] {part}")
+                                prefix = "[bold magenta]Cell:[/bold magenta] " if is_first_line else ""
+                                log.write(f"{prefix}{part}")
+                                is_first_line = False
                             buffer = parts[-1]
 
                 if buffer:
-                    log.write(f"[bold magenta]Cell:[/bold magenta] {buffer}")
+                    prefix = "[bold magenta]Cell:[/bold magenta] " if is_first_line else ""
+                    log.write(f"{prefix}{buffer}")
 
                 response_message = stream_chunk_builder(chunks, messages=self.messages).choices[0].message
 
@@ -291,12 +395,16 @@ class CellApp(App):
                     self.messages.append({"role": "assistant", "content": response_message.content})
 
                 if not response_message.tool_calls:
+                    if os.getenv("CELL_EVAL_MODE", "0") != "1":
+                        # In normal interactive mode, just stop the loop so the user can read and reply.
+                        break
+
                     no_tool_retries += 1
                     if no_tool_retries >= 3:
                         log.write("[bold red]System:[/bold red] Repeated text-only responses. Pausing for user input.")
                         break
 
-                    # In autonomous execution, if the model stops tool-calling
+                    # In autonomous eval execution, if the model stops tool-calling
                     # before the task is done, prompt it to continue rather than aborting.
                     log.write(f"[bold red]System:[/bold red] No tool calls detected (Retry {no_tool_retries}/3).")
                     logging.info(f"No tool calls detected. Prompting to continue ({no_tool_retries}/3).")
@@ -326,7 +434,7 @@ class CellApp(App):
                         continue
 
                     name = tool_call.function.name
-                    log.write(f"[dim]→ {name}({', '.join(f'{k}={repr(v)[:60]}' for k, v in args.items())})[/dim]")
+                    status_label.update(f"⚙️ Running {name}...")
 
                     if name == "remember":
                         result = save_memory(args.get("fact", ""))

@@ -151,6 +151,9 @@ async def test_realistic_scenario(scenario, tmp_path):
     original_cwd = os.getcwd()
     os.chdir(str(tmp_path))
 
+    # Set eval mode to enforce completion protocol and suppress early tool stopping.
+    os.environ["CELL_EVAL_MODE"] = "1"
+
     try:
         # Real MCP tools required — no mock.
         app = CellApp(initial_prompt=scenario["instructions"])
@@ -187,6 +190,7 @@ async def test_realistic_scenario(scenario, tmp_path):
 
     finally:
         os.chdir(original_cwd)
+        os.environ.pop("CELL_EVAL_MODE", None)
         cell_app.MEMORY_FILE = original_memory
 
 
