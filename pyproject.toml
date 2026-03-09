@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cell-cli"
 version = "0.1.0"
-description = "A minimalist AI CLI with TUI"
+description = "A small footprint pseudo-node agent for massive agentic swarms"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [

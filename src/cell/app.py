@@ -44,9 +44,9 @@ def save_memory(fact: str) -> str:
     return f"Fact remembered: {fact}"
 
 ASCII_ART = r"""
-[bold cyan] █▀▀ █▀▀ █   █   [/bold cyan] [white]CELL[/white] [dim]v1.0[/dim]
+[bold cyan] █▀▀ █▀▀ █   █   [/bold cyan] [black]CELL[/black] [dim]v1.0[/dim]
 [bold cyan] █   █▀▀ █   █   [/bold cyan] [dim]───────[/dim]
-[bold cyan] ▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀ [/bold cyan] [bold white]READY[/bold white]
+[bold cyan] ▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀ [/bold cyan] [bold black]NODE READY[/bold black]
 """
 
 class ChatInput(TextArea):
@@ -110,10 +110,12 @@ def build_system_prompt() -> str:
     )
 
     return (
-        "You are CELL, an autonomous AI coding and operations agent running in a terminal.\n\n"
+        "You are CELL, a small-footprint, cost-effective pseudo-node agent operating in a terminal.\n"
+        "You exist to serve as a fast, token-efficient worker bee within massive agentic swarms. "
+        "Your role is to execute routine ops and tools precisely, doing exactly what's needed without lengthy output.\n\n"
         "## Core Directive\n"
         "Use your tools immediately and extensively. Do NOT describe what you will do — just do it. "
-        "Chain multiple tool calls in sequence to complete tasks fully. Never stop halfway.\n\n"
+        "Chain multiple tool calls in sequence to complete tasks fully. Keep your responses short and token-efficient. Never stop halfway.\n\n"
         "## Tool Use Rules\n"
         "- **Always read before editing**: use read_file to inspect a file before modifying it.\n"
         "- **Prefer replace_in_file over write_file** for targeted edits to existing files.\n"
@@ -142,20 +144,28 @@ def build_system_prompt() -> str:
     )
 
 class CellApp(App):
-    """A minimalist terminal interface for Cell using Textual."""
+    """A minimal, token-efficient terminal interface for the Cell swarm agent."""
+
+    TITLE = "CELL"
+    SUB_TITLE = "Swarm Node Agent"
 
     CSS = """
     Screen {
-        background: $background;
+        background: #FAFAFA;
+    }
+    Header {
+        background: #EAEAEB;
+        color: #383A42;
     }
     RichLog {
         height: 1fr;
-        padding: 0 1;
-        background: $background;
+        padding: 0 2;
+        background: #FAFAFA;
         border: none;
+        color: #383A42;
     }
     #status_label {
-        color: $accent;
+        color: #0184BC;
         padding: 0 2;
         text-style: italic;
     }
@@ -164,8 +174,12 @@ class CellApp(App):
         height: auto;
         max-height: 40%;
         margin: 1 2;
-        border: round $primary;
-        background: $surface;
+        border: round #D0D0E0;
+        background: #FFFFFF;
+        color: #383A42;
+    }
+    ChatInput:focus {
+        border: round #0184BC;
     }
     """
     BINDINGS = [("ctrl+c", "quit", "Quit"), ("ctrl+l", "clear", "Clear")]
@@ -181,7 +195,7 @@ class CellApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield RichLog(id="chat_log", highlight=True, markup=True)
+        yield RichLog(id="chat_log", highlight=True, markup=True, theme="atom-one-light")
         yield Label("", id="status_label")
         yield ChatInput(id="chat_input", text="", language="markdown")
         yield Footer()
@@ -462,7 +476,7 @@ class CellApp(App):
             log.write(f"[bold red]Error:[/bold red] {e}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Cell — autonomous AI agent for the terminal")
+    parser = argparse.ArgumentParser(description="Cell — small footprint node agent for agentic swarms")
     parser.add_argument("prompt", nargs="*", help="Initial prompt")
     args = parser.parse_args()
     CellApp(" ".join(args.prompt) if args.prompt else None).run()

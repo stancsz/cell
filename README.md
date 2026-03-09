@@ -1,8 +1,8 @@
 # Cell
 
-> A minimalist AI assistant for your terminal — protocol-first, zero bloat.
+> A small footprint, cost-effective pseudo-node agent for massive agentic swarms.
 
-Cell is a tiny, hackable AI CLI built around a single idea: an LLM connected to tools via [MCP](https://modelcontextprotocol.io/). No agent framework. No abstraction layers. Just a streaming vascular loop — LLM reasons, tools execute, repeat.
+Cell is a tiny, highly token-efficient agent framework. It operates on a single idea: an LLM connected to tools via [MCP](https://modelcontextprotocol.io/). There are smarter and more capable agents out there. Cell is explicitly designed to be a cheaper, "worker bee" unit that excels on lower-tier, low-cognitive models (like `gpt-5-mini`), allowing it to perform impressive routine ops reliably while more capable models handle higher-level reasoning. It acts as a perfect node worker in a massive swarm.
 
 ```
 ┌──────────────────────────────────────────┐
@@ -10,6 +10,15 @@ Cell is a tiny, hackable AI CLI built around a single idea: an LLM connected to 
 │         (the vascular loop)              │
 └──────────────────────────────────────────┘
 ```
+
+---
+
+## The Swarm Philosophy
+
+Cell isn't trying to be the most advanced cognitive orchestrator in the world. Instead:
+- **Cost-effective** — Designed specifically for minimal token footprints. It gets right to the point without verbose logic.
+- **Lower-tier Model Champion** — Extensively tuned to extract surprising competence from smaller models like `gpt-5-mini`, freeing up expensive API limits for master-planner models.
+- **Small Footprint Worker** — Has just enough capabilities (file I/O, bash, persistent memory) to autonomously execute assigned tasks in a wider swarm. 
 
 ---
 
